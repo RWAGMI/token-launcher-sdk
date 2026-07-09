@@ -1,0 +1,73 @@
+{
+  "name": "@rwagmi/token-launcher-sdk",
+  "version": "0.1.0",
+  "description": "Standalone TypeScript SDK for integrating the RWAGMI B20 token launcher.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "keywords": [
+    "rwagmi",
+    "b20",
+    "base",
+    "uniswap-v4",
+    "token-launcher",
+    "viem",
+    "ethereum"
+  ],
+  "homepage": "https://github.com/RWAGMI/token-launcher-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/RWAGMI/token-launcher-sdk/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RWAGMI/token-launcher-sdk.git"
+  },
+  "author": "RWAGMI",
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "docs",
+    "LICENSE"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./abi": {
+      "types": "./dist/abi/index.d.ts",
+      "import": "./dist/abi/index.js"
+    },
+    "./launch": {
+      "types": "./dist/launch/index.d.ts",
+      "import": "./dist/launch/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "prepublishOnly": "npm run clean && npm run build && npm test"
+  },
+  "peerDependencies": {
+    "viem": "^2.52.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "typescript": "^5.5.4",
+    "viem": "^2.52.2",
+    "vitest": "^3.2.6"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
