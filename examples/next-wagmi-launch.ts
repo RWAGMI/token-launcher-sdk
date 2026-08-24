@@ -1,8 +1,8 @@
 import {
   BASE_MAINNET_CHAIN_ID,
-  BASE_WETH,
   DEFAULT_LAUNCHER_ADDRESSES,
   DEFAULT_RWAGMI_FEE_CONFIG,
+  legacyWethLaunchPair,
   parseLaunchReceipt,
   prepareRwagmiLaunch,
   randomSalt,
@@ -22,6 +22,12 @@ export async function prepareExampleLaunch(creator: Address) {
   const chainId = BASE_MAINNET_CHAIN_ID
   const addresses = DEFAULT_LAUNCHER_ADDRESSES[chainId]
 
+  // In production, resolve pairs with `resolveLaunchPairs(chainId, modules)`
+  // and let the user pick one. Until the pair-bound auction modules are
+  // deployed, this is the single WETH pair the launcher accepts.
+  const pair = legacyWethLaunchPair(chainId)
+  if (!pair) throw new Error('no launch pair configured for this chain')
+
   const publicClient = createPublicClient({
     chain: base,
     transport: http('https://mainnet.base.org'),
@@ -32,6 +38,7 @@ export async function prepareExampleLaunch(creator: Address) {
     chainId,
     addresses,
     rwagmiFee: DEFAULT_RWAGMI_FEE_CONFIG[chainId],
+    pair,
     draft: {
       variant: 'asset',
       name: 'Example Token',
@@ -41,8 +48,8 @@ export async function prepareExampleLaunch(creator: Address) {
       poolSupply: parseUnits('1000000', 18),
       creatorRecipient: creator,
       creatorAdmin: creator,
-      pairedToken: BASE_WETH,
-      pairedDecimals: 18,
+      // The pair is authoritative; the draft must agree with it.
+      pairedToken: pair.token,
       lpFee: 10_000,
       initialPrice: 0.000001,
       initialAdmin: creator,

@@ -3,6 +3,77 @@
 All notable changes to this package are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - Unreleased
+
+Launcher v2.1: pair-bound auction modules, curated launch pairs, and a
+liquidity-precision guard.
+
+### Breaking
+
+- `BuildLaunchArgs` now requires a `pair: LaunchPairConfig`. The pair — not the
+  draft — decides the paired token, its decimals, the auction module, and
+  dev-buy eligibility. A draft that disagrees with it throws rather than
+  silently preferring one.
+- `LauncherAddresses.mevModule` is optional and deprecated. The launch builder
+  ignores it; the module now comes from the selected pair. Use
+  `legacyWethLaunchPair(chainId)` while the pair-bound modules are undeployed.
+- `draft.pairedDecimals` no longer defaults to 18. It is read from the pair, and
+  a stale draft value is rejected. The old fallback mis-scaled every
+  non-18-decimal pair by `10 ** (18 - decimals)` — a factor of 10^10 for the
+  8-decimal B20 stocks.
+- `devBuyAmountOutMinimum` is required for any dev buy and must be a positive
+  `uint128`; it no longer defaults to `0n`. `encodeDevBuyData` requires it too.
+- `validateLiquidityCurve` takes the pool supply as a fifth argument.
+- `ClaimLaunchRewardsCtx` requires `token`, the launch token the reward balance
+  belongs to.
+- `PreparedB20Write` gains a required `subjectToken` field, which
+  `prepareWrite` defaults to `to`. It names the token whose product surface owns
+  the action, for callers that scope local history by token.
+
+### Added
+
+- Curated launch pair registry (`resolveLaunchPairs`, `defaultLaunchPair`,
+  `launchPairFrom`, `launchPairFactsFor`, `launchPairKey`, `isWethPair`)
+  covering canonical WETH and seven Base tokenized stocks, each with its own
+  pair-bound module, decimals, default opening price, risk label, and Chainlink
+  USD feed.
+- `selectLiveLaunchPairs` narrows the build-time list to what the launcher
+  currently accepts, with a legacy-module fallback for WETH during cutover.
+- `evaluatePairPreflight` refuses a paired token with no deployed bytecode,
+  whose LP fees could never be claimed out of the locker.
+- Liquidity precision guard: `launch/liquidity-math.ts` (exact bigint ports of
+  `TickMath`, `LiquidityAmounts`, and `SqrtPriceMath`, checked against a table
+  generated from Solidity), `strandedSupplyForCurve`, and `MAX_STRANDED_PPB`.
+  `validateLiquidityCurve` now rejects opening prices that would strand launch
+  supply unrecoverably in the locker, or overflow a `uint128` outright.
+- `alignedStartingPrice` returns the tick that will actually execute and its
+  human price, so a UI can show the executed opening price rather than the
+  requested one.
+- `quoteLaunchDevBuy` quotes an exact creator buy by sentinel simulation, and
+  `minimumOutForSlippage` applies a tolerance to it.
+- Offline B20 address derivation and vanity salt mining (`computeB20Address`,
+  `mineVanityB20Salt`, `B20_VANITY_SUFFIX`).
+- `rwagmiPairBoundSniperAuctionV1Abi` and `chainlinkAggregatorV3Abi`.
+- `legacyWethLaunchPair(chainId)` for the pre-v2.1 WETH pair.
+
+### Changed
+
+- `decodeB20Error` recognises wallet rejections (provider code 4001/5000,
+  `UserRejectedRequestError`, and rejection phrasing anywhere in the cause
+  chain) and returns `Transaction cancelled in wallet.`, and strips viem's
+  `Request Arguments` / `Raw Call Arguments` / `Version:` dumps from other
+  user-facing messages.
+- `decodeB20Error` explains the pair-binding reverts: `PairedTokenNotInPool`,
+  `PairedTokenMismatch`, `UnexpectedMevModuleData`, `InvalidAuctionParams`,
+  `NotLockerFeeSource`, `AuctionParamsNotConfigured`, and
+  `PairedTokenMustBeWeth`.
+- `prepareLaunchB20` warns with the exact ETH attached and minimum tokens
+  required for a creator buy.
+- `prepareCreateB20` warns explicitly when the token is created with no
+  `DEFAULT_ADMIN_ROLE`.
+- Dev buy is refused on any pair but canonical WETH, rather than building a
+  transaction that reverts with `PairedTokenMustBeWeth`.
+
 ## [0.1.0] - Unreleased
 
 Initial public release.

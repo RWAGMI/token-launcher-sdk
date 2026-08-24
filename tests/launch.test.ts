@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  decodeAbiParameters,
   decodeFunctionData,
   encodeAbiParameters,
   encodeEventTopics,
   getAbiItem,
+  getAddress,
   type Address,
   type Hex,
   type Log,
@@ -12,9 +14,12 @@ import {
   BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
   DEFAULT_LAUNCH_LP_FEE,
+  MAX_DEV_BUY_AMOUNT_OUT_MINIMUM,
   POOL_POSITIONS,
   alignTick,
+  alignedStartingPrice,
   buildLaunchConfig,
+  encodeDevBuyData,
   formatLpFeePercent,
   launchTickRange,
   launchLiquidityCurve,
@@ -32,6 +37,7 @@ import {
   rwagmiLauncherAbi,
   type BuildLaunchArgs,
   type LaunchDraft,
+  type LaunchPairConfig,
 } from '../src/index.js'
 import { b20Abi } from '../src/abi/b20.js'
 
@@ -49,6 +55,14 @@ describe('ticks', () => {
   it('price 1 maps to tick 0; price 1.0001 to tick 1', () => {
     expect(priceToStartingTick(1)).toBe(0)
     expect(priceToStartingTick(1.0001)).toBe(1)
+  })
+
+  it('reports the execution price after aligning down to launch tick spacing', () => {
+    const aligned = alignedStartingPrice(0.0001, 18, 18, 200)
+
+    expect(Math.abs(aligned.startingTick % 200)).toBe(0)
+    expect(aligned.pairedPerB20).toBeLessThanOrEqual(0.0001)
+    expect(aligned.pairedPerB20).toBeGreaterThan(0.000098)
   })
 
   it('usable ticks align to spacing', () => {
@@ -165,14 +179,44 @@ function draft(overrides: Partial<LaunchDraft> = {}): LaunchDraft {
   }
 }
 
+/**
+ * The WETH pair as it appears in the curated registry. Tests pin it explicitly
+ * so they do not depend on deployed module addresses being configured.
+ */
+const WETH_PAIR: LaunchPairConfig = {
+  chainId: BASE_SEPOLIA_CHAIN_ID,
+  token: PAIRED,
+  name: 'Wrapped Ether',
+  symbol: 'WETH',
+  decimals: 18,
+  defaultOpeningPrice: '0.000000000025',
+  mevModule: MEV,
+  supportsEthDevBuy: true,
+  riskLabel: 'canonical-weth',
+}
+
+/** An 8-decimal B20 stock pair: no dev buy, its own pair-bound module. */
+const STOCK_PAIR: LaunchPairConfig = {
+  chainId: BASE_SEPOLIA_CHAIN_ID,
+  token: getAddress('0xb2000000000000000000002d0ba3164cc74f58b7'),
+  name: 'Alphabet Inc.',
+  symbol: 'GOOGLc',
+  decimals: 8,
+  defaultOpeningPrice: '0.000000000025',
+  mevModule: getAddress('0x00000000000000000000000000000000000f0001'),
+  supportsEthDevBuy: false,
+  riskLabel: 'admin-controlled-b20-stock',
+}
+
 function args(overrides: Partial<BuildLaunchArgs> = {}): BuildLaunchArgs {
   return {
     draft: draft(),
     chainId: BASE_SEPOLIA_CHAIN_ID,
-    addresses: { launcher: LAUNCHER, hook: HOOK, locker: LOCKER, mevModule: MEV, devBuyExtension: DEVBUY },
+    addresses: { launcher: LAUNCHER, hook: HOOK, locker: LOCKER, devBuyExtension: DEVBUY },
     rwagmiFee: { recipient: RWAGMI_R, admin: RWAGMI_A },
     // predicted < paired (WETH) so B20 sorts as currency0
     predictedToken: '0x0000000000000000000000000000000000000abc',
+    pair: WETH_PAIR,
     ...overrides,
   }
 }
@@ -288,14 +332,154 @@ describe('buildLaunchConfig', () => {
     expect(plan.warnings.join(' ')).toMatch(/10% of the launch LP/i)
   })
 
+  it('takes the paired token, decimals, and auction module from the pair, not the draft', () => {
+    const c = buildLaunchConfig(
+      args({
+        draft: draft({ pairedToken: STOCK_PAIR.token, initialPrice: 0.000000000125 }),
+        pair: STOCK_PAIR,
+      }),
+    )
+
+    expect(c.poolConfig.pairedToken).toBe(STOCK_PAIR.token)
+    // The module is the pair's own, never a shared default: the launcher
+    // allowlists pairs and modules independently, so a default would let a
+    // mismatched combination be built.
+    expect(c.mevModuleConfig.mevModule).toBe(STOCK_PAIR.mevModule)
+    expect(c.mevModuleConfig.mevModuleData).toBe('0x')
+  })
+
+  it('rejects a draft whose paired token disagrees with the selected pair', () => {
+    expect(() =>
+      buildLaunchConfig(args({ draft: draft({ pairedToken: STOCK_PAIR.token }) })),
+    ).toThrow(/does not match the selected pair/)
+  })
+
+  it('rejects stale draft decimals left over from an earlier pair selection', () => {
+    expect(() =>
+      buildLaunchConfig(
+        args({
+          draft: draft({
+            pairedToken: STOCK_PAIR.token,
+            pairedDecimals: 18,
+            initialPrice: 0.000000000125,
+          }),
+          pair: STOCK_PAIR,
+        }),
+      ),
+    ).toThrow(/do not match the selected pair/)
+  })
+
+  it('rejects a pair registered for a different chain', () => {
+    expect(() =>
+      buildLaunchConfig(args({ pair: { ...WETH_PAIR, chainId: BASE_MAINNET_CHAIN_ID } })),
+    ).toThrow(/registered for chain/)
+  })
+
+  it('refuses a creator dev buy on any pair but WETH', () => {
+    expect(() =>
+      buildLaunchConfig(
+        args({
+          draft: draft({
+            pairedToken: STOCK_PAIR.token,
+            initialPrice: 0.000000000125,
+            devBuyEth: 1_000_000_000_000_000n,
+            devBuyAmountOutMinimum: 1n,
+          }),
+          pair: STOCK_PAIR,
+        }),
+      ),
+    ).toThrow(/only available for the WETH pair/)
+  })
+
+  it('requires a positive uint128 minimum output for every dev buy', () => {
+    const devBuyEth = 1_000_000_000_000_000n
+
+    expect(() => buildLaunchConfig(args({ draft: draft({ devBuyEth }) }))).toThrow(
+      /minimum output is required/,
+    )
+    expect(() =>
+      buildLaunchConfig(args({ draft: draft({ devBuyEth, devBuyAmountOutMinimum: 0n }) })),
+    ).toThrow(/greater than zero/)
+    expect(() =>
+      buildLaunchConfig(
+        args({
+          draft: draft({
+            devBuyEth,
+            devBuyAmountOutMinimum: MAX_DEV_BUY_AMOUNT_OUT_MINIMUM + 1n,
+          }),
+        }),
+      ),
+    ).toThrow(/exceeds uint128/)
+  })
+
+  it('rejects invalid dev-buy recipients and safely encodes uint128.max', () => {
+    expect(() =>
+      buildLaunchConfig(
+        args({
+          draft: draft({
+            devBuyEth: 1n,
+            devBuyAmountOutMinimum: 1n,
+            devBuyRecipient: '0x0000000000000000000000000000000000000000',
+          }),
+        }),
+      ),
+    ).toThrow(/recipient must be a non-zero address/)
+
+    expect(() =>
+      encodeDevBuyData({ recipient: 'not-an-address' as Address, amountOutMinimum: 1n }),
+    ).toThrow(/recipient must be a non-zero address/)
+    expect(() => encodeDevBuyData({ recipient: CREATOR, amountOutMinimum: 0n })).toThrow(
+      /greater than zero/,
+    )
+
+    const encoded = encodeDevBuyData({
+      recipient: CREATOR,
+      amountOutMinimum: MAX_DEV_BUY_AMOUNT_OUT_MINIMUM,
+    })
+    const [decoded] = decodeAbiParameters(
+      [
+        {
+          type: 'tuple',
+          components: [
+            { name: 'recipient', type: 'address' },
+            { name: 'amountOutMinimum', type: 'uint128' },
+            { name: 'pairedTokenPoolKey', type: 'bytes' },
+          ],
+        },
+      ],
+      encoded,
+    )
+    expect(decoded.amountOutMinimum).toBe(MAX_DEV_BUY_AMOUNT_OUT_MINIMUM)
+  })
+
   it('threads dev-buy extension value into the prepared transaction', () => {
     const devBuyEth = 1_000_000_000_000_000n
-    const plan = prepareLaunchB20(args({ draft: draft({ devBuyEth }) }))
+    const devBuyAmountOutMinimum = 123_000_000_000_000_000n
+    const plan = prepareLaunchB20(
+      args({ draft: draft({ devBuyEth, devBuyAmountOutMinimum }) }),
+    )
     const config = plan.args[0] as ReturnType<typeof buildLaunchConfig>
     expect(config.extensionConfigs).toHaveLength(1)
     expect(config.extensionConfigs[0]!.extension).toBe(DEVBUY)
     expect(config.extensionConfigs[0]!.msgValue).toBe(devBuyEth)
+    const [devBuyConfig] = decodeAbiParameters(
+      [
+        {
+          type: 'tuple',
+          components: [
+            { name: 'recipient', type: 'address' },
+            { name: 'amountOutMinimum', type: 'uint128' },
+            { name: 'pairedTokenPoolKey', type: 'bytes' },
+          ],
+        },
+      ],
+      config.extensionConfigs[0]!.extensionData,
+    )
+    expect(devBuyConfig.recipient).toBe(CREATOR)
+    expect(devBuyConfig.amountOutMinimum).toBe(devBuyAmountOutMinimum)
+    expect(devBuyConfig.pairedTokenPoolKey).toBe('0x')
     expect(plan.value).toBe(devBuyEth)
+    expect(plan.warnings.join(' ')).toContain('at least 0.123 RWG is received')
   })
 })
 
@@ -400,6 +584,7 @@ describe('launch reward writes', () => {
     const plan = prepareClaimLaunchRewards({
       chainId: BASE_SEPOLIA_CHAIN_ID,
       locker: LOCKER,
+      token: '0x0000000000000000000000000000000000000abc',
       currency: PAIRED,
       currencySymbol: 'WETH',
     })

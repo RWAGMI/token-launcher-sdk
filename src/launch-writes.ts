@@ -13,6 +13,8 @@ export interface LaunchRewardsCtx {
 export interface ClaimLaunchRewardsCtx {
   chainId: number
   locker: Address
+  /** Launch token the reward balance belongs to, for scoping local history. */
+  token: Address
   currency: Address
   /** Compact reward currency symbol for labels. */
   currencySymbol?: string
@@ -23,6 +25,7 @@ export function prepareCollectLaunchRewards(ctx: LaunchRewardsCtx): PreparedB20W
     kind: 'collectLaunchRewards',
     label: `Collect accrued launch LP rewards for ${ctx.symbol}`,
     chainId: ctx.chainId,
+    subjectToken: ctx.token,
     to: ctx.locker,
     abi: rwagmiLpLockerAbi,
     functionName: 'collectRewards',
@@ -41,6 +44,7 @@ export function prepareClaimLaunchRewards(ctx: ClaimLaunchRewardsCtx): PreparedB
     kind: 'claimLaunchRewards',
     label: `Claim credited launch LP rewards in ${currencyLabel}`,
     chainId: ctx.chainId,
+    subjectToken: ctx.token,
     to: ctx.locker,
     abi: rwagmiLpLockerAbi,
     functionName: 'claimRewards',
@@ -59,6 +63,7 @@ export function prepareUpdateLaunchRewardRecipient(
     kind: 'updateLaunchRewardRecipient',
     label: `Update ${ctx.symbol} launch reward recipient #${rewardIndex} to ${newRecipient}`,
     chainId: ctx.chainId,
+    subjectToken: ctx.token,
     to: ctx.locker,
     abi: rwagmiLpLockerAbi,
     functionName: 'updateRewardRecipient',
@@ -80,6 +85,7 @@ export function prepareUpdateLaunchRewardAdmin(
     kind: 'updateLaunchRewardAdmin',
     label: `Update ${ctx.symbol} launch reward admin #${rewardIndex} to ${newAdmin}`,
     chainId: ctx.chainId,
+    subjectToken: ctx.token,
     to: ctx.locker,
     abi: rwagmiLpLockerAbi,
     functionName: 'updateRewardAdmin',

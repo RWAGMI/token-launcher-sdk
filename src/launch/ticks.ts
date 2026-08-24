@@ -2,6 +2,7 @@
  * Tick + LP-fee helpers for building launch pools. Mirrors Uniswap v4 tick
  * math: tick = log_1.0001(price), where price is token1/token0 in raw units.
  */
+import { splitShare, strandedAmountForPosition } from './liquidity-math.js'
 
 export const MAX_TICK = 887_272
 export const MIN_TICK = -887_272
@@ -154,9 +155,36 @@ export function priceToStartingTick(
   b20Decimals = 18,
   pairedDecimals = 18,
 ): number {
-  if (!(pairedPerB20 > 0)) throw new Error('initial price must be > 0')
+  if (!Number.isFinite(pairedPerB20) || !(pairedPerB20 > 0)) {
+    throw new Error('initial price must be a finite number > 0')
+  }
   const rawPrice = pairedPerB20 * 10 ** (pairedDecimals - b20Decimals)
   return Math.floor(Math.log(rawPrice) / Math.log(1.0001))
+}
+
+/**
+ * Resolve the exact aligned starting tick and its human paired-token price.
+ * The launcher aligns down to tick spacing, so the executed opening price can
+ * be slightly lower than the user's requested price.
+ */
+export function alignedStartingPrice(
+  pairedPerB20: number,
+  b20Decimals = 18,
+  pairedDecimals = 18,
+  spacing = LAUNCH_TICK_SPACING,
+): { startingTick: number; pairedPerB20: number } {
+  const startingTick = alignStartingTick(
+    priceToStartingTick(pairedPerB20, b20Decimals, pairedDecimals),
+    spacing,
+  )
+  if (startingTick < minUsableTick(spacing) || startingTick >= maxUsableTick(spacing)) {
+    throw new Error('initial price is outside the launchable tick range')
+  }
+  const rawPrice = 1.0001 ** startingTick
+  return {
+    startingTick,
+    pairedPerB20: rawPrice / 10 ** (pairedDecimals - b20Decimals),
+  }
 }
 
 /**
@@ -237,11 +265,62 @@ function normalizeTick(tick: number): number {
   return Object.is(tick, -0) ? 0 : tick
 }
 
+/**
+ * Largest share of launch supply the v4 mint may strand, in parts per billion.
+ *
+ * 1 ppb leaves the shipped defaults an enormous margin while rejecting the
+ * opening prices where the loss becomes real. Integer, because the amounts it
+ * is compared against are exact.
+ */
+export const MAX_STRANDED_PPB = 1n
+
+/**
+ * Exact supply this curve will fail to deposit, summed over its positions.
+ *
+ * `placeLiquidity` converts each position's allocation into a liquidity number
+ * and the pool then charges only what that liquidity is worth. Both steps
+ * truncate, and the remainder is never refunded — it sits in the locker with no
+ * way out. The locker and launcher are deployed and cannot be changed, so the
+ * SDK is the only place this can be caught.
+ *
+ * This walks the same allocation the locker walks (`RwagmiBpsSplit.splitShare`,
+ * last slot absorbing the dust) and runs each position through the same
+ * Solidity maths, for the orientation that will actually be used. An earlier
+ * version modelled only the `getLiquidityForAmount0` path with a float estimate
+ * keyed on the range midpoint; that is inert in the currency1 orientation,
+ * where it scored a case that strands 8.47% of supply at ~9.3e-66 and waved it
+ * through. Roughly half of launches take that path, because a launch token and
+ * a B20 stock share an address prefix and sort against each other on a hash.
+ *
+ * @throws if the mint would revert on chain (liquidity overflowing uint128).
+ */
+export function strandedSupplyForCurve(
+  curve: LiquidityCurve,
+  poolSupply: bigint,
+  b20IsCurrency0: boolean,
+): bigint {
+  const n = curve.tickLower.length
+  let allocated = 0n
+  let stranded = 0n
+  for (let i = 0; i < n; i++) {
+    const amount = splitShare(poolSupply, curve.positionBps[i]!, allocated, i === n - 1)
+    allocated += amount
+    stranded += strandedAmountForPosition(
+      curve.tickLower[i]!,
+      curve.tickUpper[i]!,
+      amount,
+      b20IsCurrency0,
+    )
+  }
+  return stranded
+}
+
 export function validateLiquidityCurve(
   curve: LiquidityCurve,
   startingTick: number,
   spacing: number,
   b20IsCurrency0: boolean,
+  poolSupply: bigint,
 ): void {
   const n = curve.tickLower.length
   if (n === 0) throw new Error('liquidity curve must include at least one position')
@@ -249,6 +328,7 @@ export function validateLiquidityCurve(
   if (curve.tickUpper.length !== n || curve.positionBps.length !== n) {
     throw new Error('liquidity curve arrays must have matching lengths')
   }
+  if (poolSupply <= 0n) throw new Error('pool supply must be greater than zero')
   const totalBps = curve.positionBps.reduce((sum, bps) => sum + bps, 0)
   if (totalBps !== 10_000) throw new Error('liquidity position bps must sum to 10000')
   let touchesLaunchTick = false
@@ -278,5 +358,31 @@ export function validateLiquidityCurve(
 
   if (!touchesLaunchTick) {
     throw new Error('liquidity curve must include a position touching the launch tick edge')
+  }
+
+  // Precision last: the geometry has to be valid before the loss it implies
+  // means anything. An overflow here is not stranding — it is a mint that
+  // would revert outright — so it gets its own message.
+  let stranded: bigint
+  try {
+    stranded = strandedSupplyForCurve(curve, poolSupply, b20IsCurrency0)
+  } catch (error) {
+    if (error instanceof Error && /uint128/.test(error.message)) {
+      throw new Error(
+        'opening price is too extreme to place liquidity: the position would need more ' +
+          'liquidity than a v4 pool can hold, and the launch would revert. Move the ' +
+          'opening price toward the middle of the range.',
+      )
+    }
+    throw error
+  }
+
+  if (stranded * 1_000_000_000n > poolSupply * MAX_STRANDED_PPB) {
+    const percent = Number((stranded * 1_000_000n) / poolSupply) / 10_000
+    throw new Error(
+      `opening price is too low to place liquidity accurately: this curve would strand ` +
+        `~${percent.toPrecision(3)}% of the launch supply in the locker, unrecoverably. ` +
+        `Raise the opening price.`,
+    )
   }
 }

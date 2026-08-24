@@ -2,6 +2,35 @@ import { describe, expect, it } from 'vitest'
 import { decodeB20Error } from '../src/index.js'
 
 describe('B20 error decoding', () => {
+  it('collapses wallet signature rejection dumps to a short message', () => {
+    const raw = [
+      'User rejected the request.',
+      'Request Arguments: chain: undefined (id: 8453)',
+      'from: 0x0000000000000000000000000000000000000001',
+      'to: 0x0000000000000000000000000000000000000002',
+      'data: 0xdeadbeef',
+      'Details: MetaMask Tx Signature: User denied transaction signature.',
+      'Version: viem@2.52.2',
+    ].join(' ')
+
+    const decoded = decodeB20Error(new Error(raw))
+
+    expect(decoded.message).toBe('Transaction cancelled in wallet.')
+    expect(decoded.message).not.toContain('Request Arguments')
+    expect(decoded.message).not.toContain('0xdeadbeef')
+    expect(decoded.message).not.toContain('viem@')
+  })
+
+  it('recognises provider rejection codes without relying on viem instanceof checks', () => {
+    const decoded = decodeB20Error({
+      code: 4001,
+      message: 'The provider rejected this request.',
+      name: 'ProviderRpcError',
+    })
+
+    expect(decoded.message).toBe('Transaction cancelled in wallet.')
+  })
+
   it('does not leak raw viem RPC dumps for rate limits', () => {
     const raw = [
       'RPC Request failed.',
@@ -25,5 +54,15 @@ describe('B20 error decoding', () => {
     )
 
     expect(decoded.message).toBe('RPC request failed. Wait a moment and try again.')
+  })
+
+  it('removes verbose viem metadata from other user-facing errors', () => {
+    const decoded = decodeB20Error(
+      new Error(
+        'Transaction could not be prepared. Request Arguments: data: 0xdeadbeef Details: provider failed Version: viem@2.52.2',
+      ),
+    )
+
+    expect(decoded.message).toBe('Transaction could not be prepared.')
   })
 })

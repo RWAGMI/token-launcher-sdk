@@ -1,4 +1,13 @@
-import { encodeAbiParameters, getAddress, zeroAddress, type Address, type Hex } from 'viem'
+import {
+  encodeAbiParameters,
+  formatEther,
+  formatUnits,
+  getAddress,
+  isAddress,
+  zeroAddress,
+  type Address,
+  type Hex,
+} from 'viem'
 import { MAX_ASSET_DECIMALS, MIN_ASSET_DECIMALS } from '../constants.js'
 import { buildInitCalls, encodeAssetCreateParams } from '../create.js'
 import { prepareWrite, type PreparedB20Write } from '../tx-plan.js'
@@ -6,19 +15,21 @@ import { rwagmiLauncherAbi } from '../abi/rwagmi-launcher.js'
 import {
   DEFAULT_LAUNCH_LP_FEE,
   LAUNCH_TICK_SPACING,
-  alignStartingTick,
+  alignedStartingPrice,
   launchLiquidityCurve,
-  priceToStartingTick,
   validateLaunchLpFee,
   validateLiquidityCurve,
   type LiquidityCurve,
   type LiquidityShape,
 } from './ticks.js'
 import type { LauncherAddresses, RwagmiFeeConfig } from './addresses.js'
+import type { LaunchPairConfig } from './pairs.js'
 
 /** Default split: 90% creator / 10% RWAGMI of launch LP fees. */
 export const CREATOR_REWARD_BPS = 9000
 export const RWAGMI_REWARD_BPS = 1000
+/** Largest minimum output encodable by RwagmiEthDevBuy.DevBuyConfig. */
+export const MAX_DEV_BUY_AMOUNT_OUT_MINIMUM = (1n << 128n) - 1n
 
 /** Raw form state for one launch. Supply is already in base units. */
 export interface LaunchDraft {
@@ -54,6 +65,12 @@ export interface BuildLaunchArgs {
   rwagmiFee: RwagmiFeeConfig
   /** Address the B20 will deploy to (predictB20Address with the launcher as deployer). */
   predictedToken: Address
+  /**
+   * The curated pair this launch uses, from `resolveLaunchPairs`. Required and
+   * authoritative: the pair entry — not the draft — decides the paired token,
+   * its decimals, the pair-bound auction module, and dev-buy eligibility.
+   */
+  pair: LaunchPairConfig
 }
 
 /** Object shape viem encodes into the launcher's LaunchConfig tuple. */
@@ -123,9 +140,6 @@ function validate(draft: LaunchDraft): void {
   if (draft.liquidityShape === 'Custom' && !draft.customLiquidityCurve) {
     throw new Error('custom liquidity curve is required')
   }
-  if ((draft.devBuyEth ?? 0n) > 0n && !draft.devBuyRecipient && !draft.creatorRecipient) {
-    throw new Error('dev buy recipient is required')
-  }
 }
 
 /**
@@ -137,28 +151,42 @@ function validate(draft: LaunchDraft): void {
 export function buildLaunchConfig(args: BuildLaunchArgs): LaunchConfigStruct {
   const { draft, chainId, addresses, rwagmiFee, predictedToken } = args
   validate(draft)
+  const pair = resolvePair(args)
 
   const fee = draft.lpFee ?? DEFAULT_LAUNCH_LP_FEE
   const tickSpacing = LAUNCH_TICK_SPACING
-  const pairedDecimals = draft.pairedDecimals ?? 18
+  // Registry decimals are mandatory. The old `?? 18` fallback silently
+  // mis-scaled every non-18-decimal pair by 10 ** (18 - decimals) — a factor of
+  // 10^10 for the 8-decimal B20 stocks.
+  const pairedDecimals = pair.decimals
 
-  const startingTick = alignStartingTick(
-    priceToStartingTick(draft.initialPrice, draft.decimals, pairedDecimals),
+  const { startingTick } = alignedStartingPrice(
+    draft.initialPrice,
+    draft.decimals,
+    pairedDecimals,
     tickSpacing,
   )
   // Sort by checksum-normalised lowercase address, matching on-chain uint160 compare.
-  const b20IsCurrency0 = getAddress(predictedToken).toLowerCase() < getAddress(draft.pairedToken).toLowerCase()
+  const b20IsCurrency0 = getAddress(predictedToken).toLowerCase() < getAddress(pair.token).toLowerCase()
   const actualStartTick = b20IsCurrency0 ? startingTick : -startingTick
   const shape = draft.liquidityShape ?? 'Standard'
   const liquidityCurve =
     shape === 'Custom'
       ? draft.customLiquidityCurve!
       : launchLiquidityCurve(startingTick, tickSpacing, b20IsCurrency0, shape)
-  validateLiquidityCurve(liquidityCurve, actualStartTick, tickSpacing, b20IsCurrency0)
+  // The locker receives exactly `poolSupply`; extension supply is minted
+  // separately and never reaches `placeLiquidity`.
+  validateLiquidityCurve(
+    liquidityCurve,
+    actualStartTick,
+    tickSpacing,
+    b20IsCurrency0,
+    draft.poolSupply,
+  )
 
   const adminMode = draft.adminMode ?? 'immutable'
   const tokenAdmin = adminMode === 'immutable' ? zeroAddress : draft.initialAdmin
-  const extensionConfigs = buildExtensionConfigs(draft, addresses)
+  const extensionConfigs = buildExtensionConfigs(draft, addresses, pair)
   const extensionSupply = extensionConfigs.reduce(
     (sum, ext) => sum + (draft.poolSupply * BigInt(ext.extensionBps)) / 10_000n,
     0n,
@@ -224,7 +252,7 @@ export function buildLaunchConfig(args: BuildLaunchArgs): LaunchConfigStruct {
     },
     poolConfig: {
       hook: addresses.hook,
-      pairedToken: draft.pairedToken,
+      pairedToken: pair.token,
       lpFee: fee,
       tickIfToken0IsB20: startingTick,
       tickSpacing,
@@ -240,20 +268,76 @@ export function buildLaunchConfig(args: BuildLaunchArgs): LaunchConfigStruct {
       positionBps: liquidityCurve.positionBps,
       lockerData: '0x',
     },
-    mevModuleConfig: { mevModule: addresses.mevModule, mevModuleData: '0x' },
+    // The pair-bound module for this exact pair. Never `addresses.mevModule`:
+    // the launcher allowlists pairs and modules independently, so a shared
+    // default module would let a mismatched combination be built.
+    mevModuleConfig: { mevModule: pair.mevModule, mevModuleData: '0x' },
     extensionConfigs,
     poolSupply: draft.poolSupply,
     adminMode: adminMode === 'immutable' ? 0 : 1,
   }
 }
 
+/**
+ * Resolve and cross-check the curated pair for this launch.
+ *
+ * `launchB20` is publicly callable, so on-chain binding is the real defense —
+ * but the SDK must never prepare a transaction that is known to revert.
+ */
+function resolvePair(args: BuildLaunchArgs): LaunchPairConfig {
+  const { draft, chainId, pair } = args
+  if (!pair) {
+    throw new Error(
+      `paired token ${draft.pairedToken} is not an approved launch pair on chain ${chainId}`,
+    )
+  }
+  if (pair.chainId !== chainId) {
+    throw new Error(`selected pair is registered for chain ${pair.chainId}, not ${chainId}`)
+  }
+  if (getAddress(pair.token) !== getAddress(draft.pairedToken)) {
+    throw new Error(
+      `draft paired token ${draft.pairedToken} does not match the selected pair ${pair.token}`,
+    )
+  }
+  assertNonZeroAddress(pair.mevModule, 'pair auction module')
+  if (!Number.isInteger(pair.decimals) || pair.decimals < 0 || pair.decimals > 36) {
+    throw new Error(`selected pair has invalid decimals: ${pair.decimals}`)
+  }
+  // A draft may carry decimals from an earlier pair selection; a stale value
+  // would silently move the opening price by orders of magnitude.
+  if (draft.pairedDecimals !== undefined && draft.pairedDecimals !== pair.decimals) {
+    throw new Error(
+      `draft paired decimals ${draft.pairedDecimals} do not match the selected pair (${pair.decimals})`,
+    )
+  }
+  return pair
+}
+
 function buildExtensionConfigs(
   draft: LaunchDraft,
   addresses: LauncherAddresses,
+  pair: LaunchPairConfig,
 ): LaunchConfigStruct['extensionConfigs'] {
   const devBuyEth = draft.devBuyEth ?? 0n
-  if (devBuyEth <= 0n) return []
+  if (devBuyEth < 0n) throw new Error('dev buy ETH cannot be negative')
+  if (devBuyEth === 0n) return []
+  // `RwagmiEthDevBuy` reverts with PairedTokenMustBeWeth on any non-WETH pair.
+  // Fail here rather than build a transaction that is guaranteed to revert.
+  if (!pair.supportsEthDevBuy) {
+    throw new Error(
+      `creator dev buy is only available for the WETH pair; ${pair.symbol} launches must use devBuyEth = 0`,
+    )
+  }
   if (!addresses.devBuyExtension) throw new Error('dev buy extension is not configured')
+  assertNonZeroAddress(addresses.devBuyExtension, 'dev buy extension')
+
+  const recipient = draft.devBuyRecipient ?? draft.creatorRecipient
+  assertNonZeroAddress(recipient, 'dev buy recipient')
+
+  if (draft.devBuyAmountOutMinimum === undefined) {
+    throw new Error('dev buy minimum output is required')
+  }
+  assertPositiveDevBuyMinimum(draft.devBuyAmountOutMinimum)
 
   return [
     {
@@ -261,8 +345,8 @@ function buildExtensionConfigs(
       msgValue: devBuyEth,
       extensionBps: 0,
       extensionData: encodeDevBuyData({
-        recipient: draft.devBuyRecipient ?? draft.creatorRecipient,
-        amountOutMinimum: draft.devBuyAmountOutMinimum ?? 0n,
+        recipient,
+        amountOutMinimum: draft.devBuyAmountOutMinimum,
       }),
     },
   ]
@@ -270,11 +354,13 @@ function buildExtensionConfigs(
 
 export function encodeDevBuyData({
   recipient,
-  amountOutMinimum = 0n,
+  amountOutMinimum,
 }: {
   recipient: Address
-  amountOutMinimum?: bigint
+  amountOutMinimum: bigint
 }): Hex {
+  assertNonZeroAddress(recipient, 'dev buy recipient')
+  assertPositiveDevBuyMinimum(amountOutMinimum)
   return encodeAbiParameters(DEV_BUY_CONFIG_TUPLE, [
     {
       recipient,
@@ -287,10 +373,16 @@ export function encodeDevBuyData({
 /** Build the reviewable, not-yet-submitted launch transaction. */
 export function prepareLaunchB20(args: BuildLaunchArgs): PreparedB20Write {
   const config = buildLaunchConfig(args)
+  const devBuyEth = args.draft.devBuyEth ?? 0n
+  const devBuyWarning =
+    devBuyEth > 0n
+      ? `Creator buy attaches ${formatEther(devBuyEth)} ETH and reverts unless at least ${formatUnits(args.draft.devBuyAmountOutMinimum!, args.draft.decimals)} ${args.draft.symbol} is received.`
+      : null
   return prepareWrite({
     kind: 'launchB20',
     label: `Launch ${args.draft.symbol} with a Uniswap v4 pool`,
     chainId: args.chainId,
+    subjectToken: args.predictedToken,
     to: args.addresses.launcher,
     abi: rwagmiLauncherAbi,
     functionName: 'launchB20',
@@ -299,6 +391,7 @@ export function prepareLaunchB20(args: BuildLaunchArgs): PreparedB20Write {
     riskLevel: 'critical',
     warnings: [
       'One transaction creates the B20 token and initializes its Uniswap v4 pool.',
+      ...(devBuyWarning ? [devBuyWarning] : []),
       'The launch auction is mandatory for the first swap window.',
       args.draft.adminMode === 'admin'
         ? 'Admin powers remain live; the admin can later grant Asset operator and rebase the token.'
@@ -307,4 +400,21 @@ export function prepareLaunchB20(args: BuildLaunchArgs): PreparedB20Write {
       'Launch LP fee split is fixed at 90% creator / 10% RWAGMI and cannot change after launch.',
     ],
   })
+}
+
+function assertNonZeroAddress(value: unknown, label: string): asserts value is Address {
+  if (
+    typeof value !== 'string' ||
+    !isAddress(value) ||
+    getAddress(value).toLowerCase() === zeroAddress
+  ) {
+    throw new Error(`${label} must be a non-zero address`)
+  }
+}
+
+function assertPositiveDevBuyMinimum(value: bigint): void {
+  if (value <= 0n) throw new Error('dev buy minimum output must be greater than zero')
+  if (value > MAX_DEV_BUY_AMOUNT_OUT_MINIMUM) {
+    throw new Error('dev buy minimum output exceeds uint128')
+  }
 }

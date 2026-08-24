@@ -35,6 +35,8 @@ export interface CreateAssetInput {
 export interface CreateOptions {
   chainId: number
   salt: Hex
+  /** Predicted token address used to scope local transaction history. */
+  subjectToken?: Address
   /** Initial supply in base units, minted to `mintRecipient` at bootstrap. */
   initialSupply?: bigint
   /** Defaults to initialAdmin. */
@@ -112,6 +114,7 @@ export function prepareCreateB20(
     kind: 'createB20',
     label: `Create asset token ${input.symbol}`,
     chainId: options.chainId,
+    subjectToken: options.subjectToken,
     to: B20_PRECOMPILES.factory,
     abi: b20FactoryAbi,
     functionName: 'createB20',
@@ -124,6 +127,9 @@ export function prepareCreateB20(
     riskLevel: 'critical',
     warnings: [
       'This deploys a new B20 Asset token via the B20Factory precompile.',
+      input.initialAdmin === zeroAddress
+        ? 'The token is created without DEFAULT_ADMIN_ROLE. Missing roles cannot be granted later.'
+        : 'The initial admin will hold DEFAULT_ADMIN_ROLE; verify the address.',
       'Use prepareLaunchB20 for RWAGMI liquid launches; direct createB20 does not initialize a pool.',
     ],
   })

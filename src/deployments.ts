@@ -8,7 +8,15 @@ import type { LauncherAddresses, RwagmiFeeConfig } from './launch/addresses.js'
 
 export const BASE_WETH = '0x4200000000000000000000000000000000000006' as Address
 
-/** Current public RWAGMI launcher-stack addresses by chain. */
+/**
+ * Current public RWAGMI launcher-stack addresses by chain.
+ *
+ * `mevModule` is the LEGACY unbound auction module. From v2.1 the auction
+ * module is chosen per pair from the curated registry (`launch/pairs.ts`), so
+ * the launch builder never reads this field. It is recorded here only so
+ * `legacyWethLaunchPair` can reproduce the pair the launcher accepts today,
+ * while the pair-bound modules are still undeployed.
+ */
 export const DEFAULT_LAUNCHER_ADDRESSES: Record<SupportedChainId, LauncherAddresses> = {
   [BASE_MAINNET_CHAIN_ID]: {
     launcher: '0x274D92df0d1CEfF9080360191feE0d3299c21B49',

@@ -1,13 +1,26 @@
 import type { Address } from 'viem'
 import { isSupportedChainId } from '../chains.js'
 
-/** Deployed launcher-stack addresses for one chain. */
+/**
+ * Deployed core launcher-stack addresses for one chain.
+ *
+ * The auction module is deliberately NOT here: from v2.1 each approved pair has
+ * its own pair-bound module, and that mapping lives in the curated pair
+ * registry (`./pairs.ts`). Keeping a single default module on this object was
+ * what allowed a mismatched pair/module launch to be built.
+ */
 export interface LauncherAddresses {
   launcher: Address
   hook: Address
   locker: Address
-  mevModule: Address
   devBuyExtension?: Address
+  /**
+   * @deprecated Legacy single MEV module (the unbound `RwagmiSniperAuctionV0`).
+   * Retained only so existing deployment records and the indexer keep type-
+   * checking; the launch builder ignores it and uses the selected pair's module.
+   * Do not read this to build a launch.
+   */
+  mevModule?: Address
 }
 
 /** RWAGMI's default reward slot (10% of launch LP fees). */
@@ -34,8 +47,7 @@ export function resolveLauncherAddresses(
     !entry ||
     !isAddress(entry.launcher) ||
     !isAddress(entry.hook) ||
-    !isAddress(entry.locker) ||
-    !isAddress(entry.mevModule)
+    !isAddress(entry.locker)
   ) {
     return null
   }
@@ -43,8 +55,8 @@ export function resolveLauncherAddresses(
     launcher: entry.launcher,
     hook: entry.hook,
     locker: entry.locker,
-    mevModule: entry.mevModule,
     devBuyExtension: isAddress(entry.devBuyExtension) ? entry.devBuyExtension : undefined,
+    mevModule: isAddress(entry.mevModule) ? entry.mevModule : undefined,
   }
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "@rwagmi/token-launcher-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Standalone TypeScript SDK for integrating the RWAGMI B20 token launcher.",
   "license": "MIT",
   "type": "module",

@@ -14,6 +14,8 @@ export interface PreparedB20Write {
   /** Human-readable label, e.g. "Mint 100 ACME to 0x12…". */
   label: string
   chainId: number
+  /** Token whose product surface owns this action, even when `to` is a router/locker/factory. */
+  subjectToken: Address
   to: Address
   abi: Abi
   functionName: string
@@ -32,6 +34,7 @@ export interface PrepareWriteInput {
   kind: string
   label: string
   chainId: number
+  subjectToken?: Address
   to: Address
   abi: Abi
   functionName: string
@@ -52,6 +55,7 @@ export function prepareWrite(input: PrepareWriteInput): PreparedB20Write {
     kind: input.kind,
     label: input.label,
     chainId: input.chainId,
+    subjectToken: input.subjectToken ?? input.to,
     to: input.to,
     abi: input.abi,
     functionName: input.functionName,
