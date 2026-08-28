@@ -7,12 +7,10 @@ import {
 } from './launch/config.js'
 import {
   defaultLaunchPair,
-  launchPairKey,
-  resolveLaunchPairs,
+  defaultLaunchPairs,
   type LaunchPairConfig,
 } from './launch/pairs.js'
-import { BASE_WETH, DEFAULT_LAUNCHER_ADDRESSES } from './deployments.js'
-import { isSupportedChainId, type SupportedChainId } from './chains.js'
+import { isSupportedChainId } from './chains.js'
 import { predictB20Address, type CreateAssetInput } from './create.js'
 import {
   toTransactionRequest,
@@ -48,30 +46,37 @@ export function launchDraftToCreateAssetInput(draft: LaunchDraft): CreateAssetIn
 }
 
 /**
- * The canonical WETH launch pair for `chainId`, bound to the legacy unbound
- * auction module recorded in `DEFAULT_LAUNCHER_ADDRESSES`.
+ * The canonical WETH launch pair for `chainId`, bound to the auction module the
+ * launcher accepts today.
  *
- * Every launch now needs a `LaunchPairConfig`, and from v2.1 the authoritative
- * source is `resolveLaunchPairs` with the deployed pair-bound module addresses.
- * Those modules are not deployed yet, so this is what an integrator uses today:
- * it reproduces the exact pair the launcher currently accepts, and nothing more.
+ * This is the zero-configuration path: the pair that carries every product
+ * default in this SDK — the opening price, the preview copy, the ETH dev buy.
+ * Returns null when the chain has no live WETH module, which is a real state
+ * (Base Sepolia is in it), not an error to paper over: with no module there is
+ * no launchable pair, and the honest response is to disable launching rather
+ * than build a transaction that reverts.
  *
- * Deliberately WETH-only. The legacy module is unbound and would accept any
- * paired token, which is precisely the cross-product hole the pair-bound
- * modules close — so it must never be handed to a stock pair.
- *
- * Returns null when the chain has no recorded legacy module. Once the v2.1
- * modules are live, switch to `resolveLaunchPairs` and drop this.
+ * Use `defaultLaunchPairs(chainId)` to offer the stock pairs too, or
+ * `resolveLaunchPairs(chainId, modules)` to point at your own deployment.
  */
-export function legacyWethLaunchPair(chainId: number): LaunchPairConfig | null {
+export function defaultWethLaunchPair(chainId: number): LaunchPairConfig | null {
   if (!isSupportedChainId(chainId)) return null
-  const legacyModule = DEFAULT_LAUNCHER_ADDRESSES[chainId as SupportedChainId]?.mevModule
-  if (!legacyModule) return null
-  return defaultLaunchPair(
-    resolveLaunchPairs(chainId, {
-      [launchPairKey(chainId, BASE_WETH)]: legacyModule,
-    }),
-  )
+  return defaultLaunchPair(defaultLaunchPairs(chainId))
+}
+
+/**
+ * @deprecated Always returns null, and is removed in the next release.
+ *
+ * It resolved WETH against the pre-v2.1 unbound auction module. That module was
+ * removed from the launcher's allowlist by the v2.1 cutover — on Base mainnet
+ * and on Base Sepolia — so the pair it used to return now produces a launch
+ * that reverts with `MevModuleNotEnabled`. Returning null fails in your code,
+ * at zero cost, instead of on-chain after the user has signed.
+ *
+ * Replace with `defaultWethLaunchPair(chainId)`.
+ */
+export function legacyWethLaunchPair(_chainId: number): LaunchPairConfig | null {
+  return null
 }
 
 export async function predictLaunchTokenAddress({

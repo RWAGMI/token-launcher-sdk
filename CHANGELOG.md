@@ -14,9 +14,14 @@ liquidity-precision guard.
   draft — decides the paired token, its decimals, the auction module, and
   dev-buy eligibility. A draft that disagrees with it throws rather than
   silently preferring one.
-- `LauncherAddresses.mevModule` is optional and deprecated. The launch builder
-  ignores it; the module now comes from the selected pair. Use
-  `legacyWethLaunchPair(chainId)` while the pair-bound modules are undeployed.
+- `LauncherAddresses.mevModule` is optional, deprecated, and no longer present
+  in `DEFAULT_LAUNCHER_ADDRESSES`. The launch builder ignores it; the module
+  comes from the selected pair. Use `defaultWethLaunchPair(chainId)`.
+- `legacyWethLaunchPair(chainId)` always returns null and will be removed. The
+  v2.1 cutover removed the pre-v2.1 unbound module from the launcher's
+  allowlist on both Base mainnet and Base Sepolia, so the pair it returned
+  produced a launch that reverted with `MevModuleNotEnabled`. Returning null
+  fails in caller code instead of on-chain after the user has signed.
 - `draft.pairedDecimals` no longer defaults to 18. It is read from the pair, and
   a stale draft value is rejected. The old fallback mis-scaled every
   non-18-decimal pair by `10 ** (18 - decimals)` — a factor of 10^10 for the
@@ -54,7 +59,15 @@ liquidity-precision guard.
 - Offline B20 address derivation and vanity salt mining (`computeB20Address`,
   `mineVanityB20Salt`, `B20_VANITY_SUFFIX`).
 - `rwagmiPairBoundSniperAuctionV1Abi` and `chainlinkAggregatorV3Abi`.
-- `legacyWethLaunchPair(chainId)` for the pre-v2.1 WETH pair.
+- `DEFAULT_LAUNCH_PAIR_MODULES`: the deployed pair-bound auction modules, each
+  read back from the launcher's own `mevModuleEnabled` / `pairedTokenEnabled`
+  allowlist on Base mainnet at block 50,572,970 (2026-08-28). Base Sepolia has
+  no entry: its unbound module was disabled with no pair-bound replacement
+  deployed, so the chain has no launchable pair.
+- `defaultLaunchPairs(chainId)` and `defaultWethLaunchPair(chainId)` resolve the
+  curated pairs against those modules, so a launch needs no module
+  configuration. `resolveLaunchPairs(chainId, modules)` still takes an arbitrary
+  map for forks and private deployments.
 
 ### Changed
 
@@ -73,6 +86,10 @@ liquidity-precision guard.
   `DEFAULT_ADMIN_ROLE`.
 - Dev buy is refused on any pair but canonical WETH, rather than building a
   transaction that reverts with `PairedTokenMustBeWeth`.
+- The README documents launching against a local Base mainnet fork, including
+  why it needs `base-anvil`: B20 tokens and their factory are native to the Base
+  node, so stock `anvil` sees no factory code and fails any B20 call with
+  `OpcodeNotFound`.
 
 ## [0.1.0] - Unreleased
 

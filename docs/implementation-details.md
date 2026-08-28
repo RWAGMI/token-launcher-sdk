@@ -85,17 +85,21 @@ reverts, so there is no such thing as a default module.
 `launch/pairs.ts` holds the curated registry: for each approved pair, the token,
 its decimals, the module bound to it, whether ETH dev buy is available, a
 default opening price, a risk label, and (for the tokenized stocks) a Chainlink
-USD feed. Module addresses are deployment inputs rather than source constants —
-supply them to `resolveLaunchPairs(chainId, modules)`, keyed by
-`launchPairKey(chainId, token)`. A pair with no configured module is dropped,
-and a configuration with no WETH pair is rejected outright, because every
-product default in this SDK is written for WETH.
+USD feed. Pair facts are source constants; module addresses are separable
+deployment inputs — `resolveLaunchPairs(chainId, modules)` takes them keyed by
+`launchPairKey(chainId, token)`, and `DEFAULT_LAUNCH_PAIR_MODULES` is the
+shipped map of what the launcher allowlists today. A pair with no configured
+module is dropped, and a configuration with no WETH pair is rejected outright,
+because every product default in this SDK is written for WETH.
 
-`LauncherAddresses.mevModule` is retained but deprecated. The launch builder
-never reads it. It exists so existing deployment records keep type-checking, and
-so `legacyWethLaunchPair(chainId)` can reproduce the single WETH pair the
-deployed launcher accepts today, while the pair-bound modules are still
-undeployed.
+Keeping the two separable is what lets a fork, a private deployment, or a
+cutover window override the modules without forking the pair facts.
+
+`LauncherAddresses.mevModule` is optional, deprecated, and no longer populated
+by `DEFAULT_LAUNCHER_ADDRESSES`. The launch builder never reads it; the field
+survives only so existing deployment records keep type-checking. Shipping a
+single default module was what made a stale, de-allowlisted address reachable
+from the documented path.
 
 `selectLiveLaunchPairs(pairs, state, legacy)` narrows the build-time list to
 what the launcher currently accepts, given `mevModuleEnabled` and

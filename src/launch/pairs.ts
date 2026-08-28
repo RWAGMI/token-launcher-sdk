@@ -244,6 +244,36 @@ export const LAUNCH_PAIR_FACTS: readonly Omit<LaunchPairConfig, 'mevModule'>[] =
   },
 ]
 
+/**
+ * Deployed pair-bound auction modules, keyed by `launchPairKey(chainId, token)`.
+ *
+ * Every address here was read back from the launcher's own allowlist
+ * (`mevModuleEnabled(module) == true` and `pairedTokenEnabled(token) == true`)
+ * on Base mainnet at block 50,572,970, 2026-08-28. A pair is listed only once
+ * both gates are live, so this record is the launchable set, not an intention.
+ *
+ * These are defaults, not a lock-in: `resolveLaunchPairs` still takes an
+ * arbitrary module map, which is what a fork, a private deployment, or a
+ * cutover window needs.
+ *
+ * Base Sepolia has no entry. Its pre-v2.1 unbound module was disabled and no
+ * pair-bound module has been deployed to replace it, so the chain currently has
+ * no launchable pair — `defaultLaunchPairs(BASE_SEPOLIA_CHAIN_ID)` is empty by
+ * design rather than by omission.
+ */
+export const DEFAULT_LAUNCH_PAIR_MODULES: Readonly<Record<LaunchPairKey, string>> = {
+  [launchPairKey(BASE_MAINNET_CHAIN_ID, BASE_WETH)]:
+    '0x72BD22136b321ea321573828E00120B016CE3967',
+  [launchPairKey(BASE_MAINNET_CHAIN_ID, '0xb2000000000000000000002d0ba3164cc74f58b7')]:
+    '0xe6A1f39b642Fb27BF400D10428135551e1dd5fa4',
+  [launchPairKey(BASE_MAINNET_CHAIN_ID, '0xb200000000000000000000C2e324d24d7eEcd1fb')]:
+    '0x5f1e5e728CEA9296a65e69AAf1246414708d3712',
+  [launchPairKey(BASE_MAINNET_CHAIN_ID, '0xb20000000000000000000078ee7ce2fE4908108C')]:
+    '0xC52b2a85B28736E9550EFF553c95fC3D5595978E',
+  [launchPairKey(BASE_MAINNET_CHAIN_ID, '0xb2000000000000000000008bC8786B856E61707C')]:
+    '0x5db77e41fD36236559608110d90fFA926A24d424',
+}
+
 const isAddress = (v: unknown): v is Address =>
   typeof v === 'string' &&
   isViemAddress(v, { strict: false }) &&
@@ -351,6 +381,21 @@ export function resolveLaunchPairs(
   // than serve it.
   if (!resolved.some((p) => p.supportsEthDevBuy)) return []
   return resolved
+}
+
+/**
+ * The curated pairs for `chainId` bound to their currently deployed modules.
+ *
+ * The zero-configuration path: it is `resolveLaunchPairs` with
+ * `DEFAULT_LAUNCH_PAIR_MODULES`. Pass your own map instead when you run against
+ * a fork or a private deployment.
+ *
+ * Allowlists change by owner transaction, so a shipped default can go stale
+ * between releases. Anything long-lived should still gate on chain state with
+ * `selectLiveLaunchPairs`.
+ */
+export function defaultLaunchPairs(chainId: number): LaunchPairConfig[] {
+  return resolveLaunchPairs(chainId, DEFAULT_LAUNCH_PAIR_MODULES)
 }
 
 /** Look up one resolved pair by paired-token address. Null when unregistered. */

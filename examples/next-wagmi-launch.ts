@@ -2,7 +2,7 @@ import {
   BASE_MAINNET_CHAIN_ID,
   DEFAULT_LAUNCHER_ADDRESSES,
   DEFAULT_RWAGMI_FEE_CONFIG,
-  legacyWethLaunchPair,
+  defaultWethLaunchPair,
   parseLaunchReceipt,
   prepareRwagmiLaunch,
   randomSalt,
@@ -22,10 +22,10 @@ export async function prepareExampleLaunch(creator: Address) {
   const chainId = BASE_MAINNET_CHAIN_ID
   const addresses = DEFAULT_LAUNCHER_ADDRESSES[chainId]
 
-  // In production, resolve pairs with `resolveLaunchPairs(chainId, modules)`
-  // and let the user pick one. Until the pair-bound auction modules are
-  // deployed, this is the single WETH pair the launcher accepts.
-  const pair = legacyWethLaunchPair(chainId)
+  // In production, offer `defaultLaunchPairs(chainId)` and let the user pick
+  // one — or `resolveLaunchPairs(chainId, modules)` against your own
+  // deployment. This is the canonical WETH pair and its bound auction module.
+  const pair = defaultWethLaunchPair(chainId)
   if (!pair) throw new Error('no launch pair configured for this chain')
 
   const publicClient = createPublicClient({

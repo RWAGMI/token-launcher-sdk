@@ -7,6 +7,8 @@ import {
   alignedStartingPrice,
   buildLaunchConfig,
   buildLaunchPairRegistry,
+  DEFAULT_LAUNCH_PAIR_MODULES,
+  defaultLaunchPairs,
   evaluatePairPreflight,
   LAUNCH_PAIR_FACTS,
   decodeRevertData,
@@ -295,6 +297,36 @@ function args(overrides: Partial<BuildLaunchArgs> = {}): BuildLaunchArgs {
     ...overrides,
   }
 }
+
+describe('shipped default modules', () => {
+  it('resolves mainnet pairs with no configuration', () => {
+    const pairs = defaultLaunchPairs(BASE_MAINNET_CHAIN_ID)
+
+    expect(pairs.length).toBeGreaterThan(0)
+    // WETH must lead, or `resolveLaunchPairs` would have failed the list closed.
+    expect(pairs[0].token).toBe(getAddress(WETH))
+    expect(pairs[0].supportsEthDevBuy).toBe(true)
+    for (const pair of pairs) {
+      expect(pair.chainId).toBe(BASE_MAINNET_CHAIN_ID)
+      expect(pair.mevModule).toBe(getAddress(pair.mevModule))
+    }
+  })
+
+  it('binds one module to one pair', () => {
+    const modules = Object.values(DEFAULT_LAUNCH_PAIR_MODULES).map((m) =>
+      m.toLowerCase(),
+    )
+    expect(new Set(modules).size).toBe(modules.length)
+    // A module shared across pairs would be dropped by the registry, so a
+    // duplicate here silently shrinks the launchable set.
+    expect(defaultLaunchPairs(BASE_MAINNET_CHAIN_ID).length).toBe(modules.length)
+  })
+
+  it('is empty on a chain with no deployed module', () => {
+    expect(defaultLaunchPairs(BASE_SEPOLIA_CHAIN_ID)).toEqual([])
+    expect(defaultLaunchPairs(1)).toEqual([])
+  })
+})
 
 describe('pair-aware launch builder', () => {
   it('uses the selected pair token and its own bound module', () => {
