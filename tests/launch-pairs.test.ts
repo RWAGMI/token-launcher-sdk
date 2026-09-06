@@ -107,10 +107,19 @@ describe('curated pair registry', () => {
     expect(byToken.get('WETH')).toBe('0.000000000025')
     expect(byToken.get('GOOGLc')).toBe('0.000000000125')
     expect(byToken.get('AAPLc')).toBe('0.000000000125')
-    // Share prices span too wide a range for one shared stock constant:
-    // NVDA ~$225 and META ~$565 would sit at half and double the target.
+    // Share prices span too wide a range for one shared stock constant: SNDK
+    // ~$1,733 and MSTR ~$143 are an order of magnitude apart, and a single
+    // constant would open one at a twelfth of the target and the other at 12x.
     expect(byToken.get('NVDAc')).toBe('0.0000000002')
     expect(byToken.get('METAc')).toBe('0.000000000075')
+    expect(byToken.get('AMZNc')).toBe('0.000000000155')
+    expect(byToken.get('MSFTc')).toBe('0.00000000008')
+    expect(byToken.get('MSTRc')).toBe('0.00000000028')
+    expect(byToken.get('SNDKc')).toBe('0.0000000000235')
+    // Repriced when the issuer minted them: the previous figures were derived
+    // from the 2026-08-21 close while both were still unminted.
+    expect(byToken.get('SPCXc')).toBe('0.000000000275')
+    expect(byToken.get('TSLAc')).toBe('0.000000000115')
     // Every fact entry must have one, or the form has nothing to seed with.
     for (const f of LAUNCH_PAIR_FACTS) {
       expect(Number(f.defaultOpeningPrice)).toBeGreaterThan(0)
@@ -121,14 +130,19 @@ describe('curated pair registry', () => {
     const stocks = LAUNCH_PAIR_FACTS.filter(
       (f) => f.riskLabel === 'admin-controlled-b20-stock',
     )
-    // COINc/SPCXc/TSLAc were unminted when added: checked in so the wiring is
-    // ready, still gated behind a module address like every other pair.
+    // COINc is still unminted: checked in so the wiring is ready, still gated
+    // behind a module address like every other pair. CRCLc and INTCc are
+    // published by Base but unminted and deliberately not carried here.
     expect(stocks.map((f) => f.symbol).sort()).toEqual([
       'AAPLc',
+      'AMZNc',
       'COINc',
       'GOOGLc',
       'METAc',
+      'MSFTc',
+      'MSTRc',
       'NVDAc',
+      'SNDKc',
       'SPCXc',
       'TSLAc',
     ])

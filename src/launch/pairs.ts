@@ -130,21 +130,26 @@ export const LAUNCH_PAIR_FACTS: readonly Omit<LaunchPairConfig, 'mevModule'>[] =
   },
   // --- Approved B20 stock pairs -------------------------------------------
   // Facts verified on Base mainnet: GOOGLc/AAPLc 2026-08-17, NVDAc/METAc
-  // 2026-08-18, COINc/SPCXc/TSLAc 2026-08-23. All seven are 8-decimal B20
-  // Assets sharing one issuer (same DEFAULT_ADMIN / OPERATOR / MINT role
-  // holders) which retains live mint/burn, pause and transfer-policy powers,
-  // with `multiplier() == 1e18`, an uncapped `supplyCap`, no paused features,
-  // and the permissive policy id 5 on all four scopes.
+  // 2026-08-18, COINc/SPCXc/TSLAc 2026-08-23, AMZNc/MSFTc/MSTRc/SNDKc
+  // 2026-09-05 (block 50,886,085). All eleven are 8-decimal B20 Assets sharing
+  // one issuer (same DEFAULT_ADMIN / OPERATOR / MINT role holders) which
+  // retains live mint/burn, pause and transfer-policy powers, with
+  // `multiplier() == 1e18`, an uncapped `supplyCap`, no paused features, and
+  // the permissive policy id 5 on all four scopes.
   // They stay invisible until a module address is supplied, which must not
   // happen before the pair passes RWAGMI's eligibility checklist AND its live
   // acceptance launch.
   //
-  // The last three are ISSUED BUT UNMINTED: at 2026-08-23 each had
-  // `totalSupply() == 0` and a zero v4 singleton balance. They are checked in
-  // here so the wiring is ready the day supply appears, but they CANNOT be
-  // enabled before then — the hook fronts the auction payment with
-  // `PoolManager.take`, which reverts against a zero singleton balance, and a
-  // token with no supply has no routing leg either.
+  // Base minted six more on 2026-09-05 (AMZNc, MSFTc, MSTRc, SNDKc, plus SPCXc
+  // and TSLAc, which had been parked here unminted). Their USDC routing legs
+  // are freshly seeded and thinner than the incumbents' — ~$110k TVL each
+  // against $0.9-2.4M — but they clear the same 200 bps bar: executed $25k
+  // buys cost 54-109 bps against the incumbents' sub-1 bp. Re-measure the
+  // routing leg yourself before leaning on one; these pools are days old and
+  // the figure moves.
+  //
+  // CRCLc and INTCc are published by Base but still unminted and not requested,
+  // so they are deliberately absent rather than parked here.
   {
     chainId: BASE_MAINNET_CHAIN_ID,
     token: getAddress('0xb2000000000000000000002d0ba3164cc74f58b7'),
@@ -202,7 +207,93 @@ export const LAUNCH_PAIR_FACTS: readonly Omit<LaunchPairConfig, 'mevModule'>[] =
     // Chainlink `Coinbase META`, 8 decimals, total-return.
     usdPriceFeed: getAddress('0x6526aE6797A76123638b863AeE4dD27Ba4E4b27D'),
   },
-  // --- Unminted at 2026-08-23: ready to wire, not ready to enable ----------
+  {
+    chainId: BASE_MAINNET_CHAIN_ID,
+    token: getAddress('0xb200000000000000000000d9192b6B456483C2E8'),
+    name: 'Amazon.com Inc.',
+    symbol: 'AMZNc',
+    decimals: 8,
+    // ~$4.0k at ~$258/share.
+    defaultOpeningPrice: '0.000000000155',
+    supportsEthDevBuy: false,
+    riskLabel: 'admin-controlled-b20-stock',
+    // Chainlink `Coinbase AMZN`, 8 decimals, total-return.
+    usdPriceFeed: getAddress('0x06A8E4b3aBB3B7543d8396FB2B763d22820cB295'),
+  },
+  {
+    chainId: BASE_MAINNET_CHAIN_ID,
+    token: getAddress('0xB200000000000000000000Ab99cFa739E253872B'),
+    name: 'Microsoft Corporation',
+    symbol: 'MSFTc',
+    decimals: 8,
+    // ~$4.0k at ~$500/share.
+    defaultOpeningPrice: '0.00000000008',
+    supportsEthDevBuy: false,
+    riskLabel: 'admin-controlled-b20-stock',
+    // Chainlink `Coinbase MSFT`, 8 decimals, total-return.
+    usdPriceFeed: getAddress('0xeB10A6c9aa7E537aEd766C08c35Dae35B321b18c'),
+  },
+  {
+    chainId: BASE_MAINNET_CHAIN_ID,
+    token: getAddress('0xb2000000000000000000004884b426556b92883d'),
+    name: 'Strategy Inc.',
+    symbol: 'MSTRc',
+    decimals: 8,
+    // ~$3.9k at ~$143/share.
+    defaultOpeningPrice: '0.00000000028',
+    supportsEthDevBuy: false,
+    riskLabel: 'admin-controlled-b20-stock',
+    // Chainlink `Coinbase MSTR`, 8 decimals, total-return.
+    usdPriceFeed: getAddress('0xB3cE282CD188b35DA0E38D8Bc7d58e33173D202a'),
+  },
+  {
+    chainId: BASE_MAINNET_CHAIN_ID,
+    token: getAddress('0xb200000000000000000000397293Cb8cda9a10c5'),
+    name: 'Sandisk Corporation',
+    symbol: 'SNDKc',
+    decimals: 8,
+    // ~$4.0k at ~$1,733/share — the priciest share in the set, so the opening
+    // price sits an order of magnitude below its peers. Still ~225k ticks
+    // clear of the stranding floor, which is what actually bounds it.
+    defaultOpeningPrice: '0.0000000000235',
+    supportsEthDevBuy: false,
+    riskLabel: 'admin-controlled-b20-stock',
+    // Chainlink `Coinbase SNDK`, 8 decimals, total-return.
+    usdPriceFeed: getAddress('0x388b0dC46C0Fb05A74BeE0994fa5b02c6Fcca2eA'),
+  },
+  {
+    chainId: BASE_MAINNET_CHAIN_ID,
+    token: getAddress('0xb2000000000000000000007b9fcbd005511aCBd5'),
+    name: 'Space Exploration Technologies Corp.',
+    symbol: 'SPCXc',
+    decimals: 8,
+    // ~$4.0k at ~$148/share. Repriced at mint: the old figure was derived from
+    // the 2026-08-21 close while the token was unminted and opened at ~$4.4k.
+    defaultOpeningPrice: '0.000000000275',
+    supportsEthDevBuy: false,
+    riskLabel: 'admin-controlled-b20-stock',
+    // Chainlink `Coinbase SPCX`, 8 decimals, total-return.
+    usdPriceFeed: getAddress('0x6A634B235903C4ad6376892180d6fF8612e3Fa68'),
+  },
+  {
+    chainId: BASE_MAINNET_CHAIN_ID,
+    token: getAddress('0xb2000000000000000000001e800a7f5189430cD0'),
+    name: 'Tesla Inc.',
+    symbol: 'TSLAc',
+    decimals: 8,
+    // ~$4.0k at ~$353/share. Repriced at mint, as SPCXc was.
+    defaultOpeningPrice: '0.000000000115',
+    supportsEthDevBuy: false,
+    riskLabel: 'admin-controlled-b20-stock',
+    // Chainlink `Coinbase TSLA`, 8 decimals, total-return.
+    usdPriceFeed: getAddress('0xFaf869185383a24F8cb00e27BdA6b63B9905DCb4'),
+  },
+  // --- Unminted: ready to wire, not ready to enable ------------------------
+  // COINc still had `totalSupply() == 0` and a zero v4 singleton balance at
+  // 2026-09-05. It is checked in so the wiring is ready the day supply
+  // appears, but it CANNOT be enabled before then — the hook fronts the
+  // auction payment with `PoolManager.take`, which reverts against a zero
+  // singleton balance, and a token with no supply has no routing leg either.
   {
     chainId: BASE_MAINNET_CHAIN_ID,
     token: getAddress('0xb200000000000000000000c85a31389D71F3ecfb'),
@@ -216,32 +307,6 @@ export const LAUNCH_PAIR_FACTS: readonly Omit<LaunchPairConfig, 'mevModule'>[] =
     // Chainlink `Coinbase COIN`, 8 decimals, total-return.
     usdPriceFeed: getAddress('0x408e44f504A7371a345F03a73dDC96A4b48e8aa7'),
   },
-  {
-    chainId: BASE_MAINNET_CHAIN_ID,
-    token: getAddress('0xb2000000000000000000007b9fcbd005511aCBd5'),
-    name: 'Space Exploration Technologies Corp.',
-    symbol: 'SPCXc',
-    decimals: 8,
-    // ~$4.1k at ~$137/share (feed, 2026-08-21 close).
-    defaultOpeningPrice: '0.0000000003',
-    supportsEthDevBuy: false,
-    riskLabel: 'admin-controlled-b20-stock',
-    // Chainlink `Coinbase SPCX`, 8 decimals, total-return.
-    usdPriceFeed: getAddress('0x6A634B235903C4ad6376892180d6fF8612e3Fa68'),
-  },
-  {
-    chainId: BASE_MAINNET_CHAIN_ID,
-    token: getAddress('0xb2000000000000000000001e800a7f5189430cD0'),
-    name: 'Tesla Inc.',
-    symbol: 'TSLAc',
-    decimals: 8,
-    // ~$4.5k at ~$364/share (feed, 2026-08-21 close).
-    defaultOpeningPrice: '0.000000000125',
-    supportsEthDevBuy: false,
-    riskLabel: 'admin-controlled-b20-stock',
-    // Chainlink `Coinbase TSLA`, 8 decimals, total-return.
-    usdPriceFeed: getAddress('0xFaf869185383a24F8cb00e27BdA6b63B9905DCb4'),
-  },
 ]
 
 /**
@@ -249,8 +314,14 @@ export const LAUNCH_PAIR_FACTS: readonly Omit<LaunchPairConfig, 'mevModule'>[] =
  *
  * Every address here was read back from the launcher's own allowlist
  * (`mevModuleEnabled(module) == true` and `pairedTokenEnabled(token) == true`)
- * on Base mainnet at block 50,572,970, 2026-08-28. A pair is listed only once
- * both gates are live, so this record is the launchable set, not an intention.
+ * on Base mainnet at block 50,974,454, 2026-09-07, together with the locker's
+ * `feeSourceEnabled(module)` and the module's own immutable `pairedToken()`.
+ * A pair is listed only once all of those agree, so this record is the
+ * launchable set, not an intention.
+ *
+ * COINc deliberately has no module here. Its facts are checked in so the wiring
+ * is ready the day the issuer mints supply, but `defaultLaunchPairs` omits it
+ * until a module exists, which is the same thing the chain would tell you.
  *
  * These are defaults, not a lock-in: `resolveLaunchPairs` still takes an
  * arbitrary module map, which is what a fork, a private deployment, or a
@@ -272,6 +343,18 @@ export const DEFAULT_LAUNCH_PAIR_MODULES: Readonly<Record<LaunchPairKey, string>
     '0xC52b2a85B28736E9550EFF553c95fC3D5595978E',
   [launchPairKey(BASE_MAINNET_CHAIN_ID, '0xb2000000000000000000008bC8786B856E61707C')]:
     '0x5db77e41fD36236559608110d90fFA926A24d424',
+  [launchPairKey(BASE_MAINNET_CHAIN_ID, '0xb200000000000000000000d9192b6B456483C2E8')]:
+    '0x115CFa0A84fEDc6471f18193815D07b8Ac83482B',
+  [launchPairKey(BASE_MAINNET_CHAIN_ID, '0xB200000000000000000000Ab99cFa739E253872B')]:
+    '0xe6CebF8aC9839c0aEc02Bbcf30315C2C760FeBC3',
+  [launchPairKey(BASE_MAINNET_CHAIN_ID, '0xb2000000000000000000004884b426556b92883d')]:
+    '0x8F13223B51D52D2cDb4a64B6E6927F90b1fC10Bd',
+  [launchPairKey(BASE_MAINNET_CHAIN_ID, '0xb200000000000000000000397293Cb8cda9a10c5')]:
+    '0xE840EbdE0397575c17980336f9352c2b09141CCA',
+  [launchPairKey(BASE_MAINNET_CHAIN_ID, '0xb2000000000000000000007b9fcbd005511aCBd5')]:
+    '0x3CF0A959E57bA91dCA442f020cd355b9eFb50247',
+  [launchPairKey(BASE_MAINNET_CHAIN_ID, '0xb2000000000000000000001e800a7f5189430cD0')]:
+    '0x8aF1a3D862FBC6625a52EE8e7fB01aeDa397f7B4',
 }
 
 const isAddress = (v: unknown): v is Address =>

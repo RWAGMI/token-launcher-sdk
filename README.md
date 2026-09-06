@@ -208,7 +208,8 @@ Two optional chain-aware guards:
 - Pairs are curated. Show the pair's `riskLabel`: `canonical-weth` has no
   issuer, while `admin-controlled-b20-stock` is a third-party token whose issuer
   retains live mint, burn, pause, and transfer-policy powers over an already
-  created pool.
+  created pool. The union is exported as `LaunchPairRiskLabel`; switch on it
+  rather than copying the strings into your own code.
 - The auction module is mandatory, and is bound to the selected pair.
 - A creator dev buy is WETH-only, and its minimum output is required.
 - Immutable mode creates the B20 with no admin.

@@ -39,7 +39,7 @@ liquidity-precision guard.
 
 - Curated launch pair registry (`resolveLaunchPairs`, `defaultLaunchPair`,
   `launchPairFrom`, `launchPairFactsFor`, `launchPairKey`, `isWethPair`)
-  covering canonical WETH and seven Base tokenized stocks, each with its own
+  covering canonical WETH and eleven Base tokenized stocks, each with its own
   pair-bound module, decimals, default opening price, risk label, and Chainlink
   USD feed.
 - `selectLiveLaunchPairs` narrows the build-time list to what the launcher
@@ -61,9 +61,13 @@ liquidity-precision guard.
 - `rwagmiPairBoundSniperAuctionV1Abi` and `chainlinkAggregatorV3Abi`.
 - `DEFAULT_LAUNCH_PAIR_MODULES`: the deployed pair-bound auction modules, each
   read back from the launcher's own `mevModuleEnabled` / `pairedTokenEnabled`
-  allowlist on Base mainnet at block 50,572,970 (2026-08-28). Base Sepolia has
-  no entry: its unbound module was disabled with no pair-bound replacement
-  deployed, so the chain has no launchable pair.
+  allowlist on Base mainnet at block 50,974,454 (2026-09-07), cross-checked
+  against the locker's `feeSourceEnabled` and the module's own immutable
+  `pairedToken()`. Every pair but COINc is launchable: WETH plus the ten minted
+  stocks (GOOGLc, AAPLc, NVDAc, METAc, AMZNc, MSFTc, MSTRc, SNDKc, SPCXc,
+  TSLAc). COINc is still unminted, so it has no module and `defaultLaunchPairs`
+  omits it. Base Sepolia has no entry either: its unbound module was disabled
+  with no pair-bound replacement deployed, so the chain has no launchable pair.
 - `defaultLaunchPairs(chainId)` and `defaultWethLaunchPair(chainId)` resolve the
   curated pairs against those modules, so a launch needs no module
   configuration. `resolveLaunchPairs(chainId, modules)` still takes an arbitrary
