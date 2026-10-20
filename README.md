@@ -4,12 +4,20 @@ Standalone TypeScript SDK for integrating the RWAGMI B20 token launcher into an
 external product.
 
 This package prepares wallet-reviewable transactions for launching a new Base
-B20 Asset token into a RWAGMI Uniswap v4 pool. It does not custody keys, submit
+B20 Asset token into RWAGMI Uniswap v4 pools. It does not custody keys, submit
 transactions for the user, run an indexer, or depend on the RWAGMI web app.
+
+It supports both launcher versions. **Launcher v3** is current: one token across
+1–5 pools, with trading fees taken in each pool's paired asset. **Launcher v2**
+(one pool with a launch auction) remains for existing launches and their
+claims.
 
 ## What This SDK Does
 
-- Builds the `RwagmiB20Launcher.launchB20(config)` transaction.
+- Builds launcher v3 multi-pool launches, lists the paired assets the v3
+  launcher accepts, quotes the creator buy, parses v3 receipts, and prepares v3
+  reward claims and slot rotations.
+- Builds the v2 `RwagmiB20Launcher.launchB20(config)` transaction.
 - Predicts the B20 token address before launch through the B20Factory
   precompile, and can mine a vanity salt for it offline.
 - Encodes immutable or admin-mode Asset token bootstrap calls.
@@ -28,8 +36,8 @@ transactions for the user, run an indexer, or depend on the RWAGMI web app.
 - It does not create arbitrary ERC20 pairs or act as a swap aggregator.
 - It does not launch B20 Stablecoins. Current RWAGMI launcher scope is B20 Asset
   tokens only.
-- It does not let you launch against an arbitrary paired token. Pairs are a
-  curated, source-controlled registry and the launcher allowlists them on-chain.
+- It does not let you launch against an arbitrary paired token. The launcher
+  allowlists pairs on-chain, and the SDK ships a curated catalogue of them.
 - It does not bypass wallet review. Every write is returned as a transaction
   plan for your app to display, simulate, and submit through the user's wallet.
 
@@ -41,7 +49,126 @@ pnpm add @rwagmi/token-launcher-sdk viem
 
 `viem` (>= 2.52) is a peer dependency, so install it alongside the SDK.
 
-## Quick Start
+## Launcher v3: Multi-Pool Launches
+
+One `RwagmiB20LauncherV3.launchB20(config)` transaction creates a B20 Asset and
+1–5 Uniswap v4 pools, each paired with a different asset, and splits the launch
+supply between them. Compared with v2:
+
+- **Fees.** The native LP fee is zero. The hook takes each pool's trading fee in
+  that pool's paired asset, either static or dynamic, capped at 10%. The
+  creator's reward slots share 90% and RWAGMI receives 10%. There is no launch
+  auction and no conversion.
+- **Pools.** 1–5 distinct paired assets, 1–7 positions each, 25 in total.
+  Allocations, fees and reward shares are fixed at launch. The primary pool sets
+  the headline price and market cap.
+- **Opening prices.** An opening market cap in USD sets every pool's price from
+  that pair's USD reference, which you supply. A pool can instead take an
+  explicit `priceQuote` once `advancedPricesAcknowledged` is set.
+- **Creator buy.** An optional ETH buy from the launch's WETH pool, in the same
+  transaction.
+- **Rewards.** Fees accrue per paired asset. A claim settles a launch's pools in
+  one currency and pays the caller's whole balance in that currency.
+
+`DEFAULT_LAUNCHER_V3` holds the Base mainnet stack; `defaultLauncherV3(chainId)`
+returns it, or null where none is deployed.
+
+```ts
+import {
+  BASE_MAINNET_CHAIN_ID,
+  STATIC_FEE_V3,
+  defaultLauncherV3,
+  mineVanityB20Salt,
+  parseLaunchV3Receipt,
+  predictB20Address,
+  preflightLaunchV3,
+  prepareLaunchV3,
+  previewLaunchV3,
+  readLaunchPairsV3,
+  toTransactionRequest,
+  type LaunchDraftV3,
+  type QuoteReferenceV3,
+} from '@rwagmi/token-launcher-sdk'
+import { createPublicClient, http, parseUnits, zeroAddress, type Address } from 'viem'
+import { base } from 'viem/chains'
+
+const client = createPublicClient({ chain: base, transport: http('https://mainnet.base.org') })
+const deployment = defaultLauncherV3(BASE_MAINNET_CHAIN_ID)!
+const creator = '0xYourCreatorWallet' as Address
+
+// Every pair the launcher accepts right now, with symbol and decimals read onchain.
+const pairs = await readLaunchPairsV3(client, deployment)
+const weth = pairs.find((p) => p.symbol === 'WETH')!
+const stock = pairs.find((p) => p.symbol === 'NVDAc')!
+
+const { salt } = mineVanityB20Salt('asset', deployment.launcher)
+const predictedToken = await predictB20Address(client, deployment.launcher, salt)
+
+// USD value of one whole paired token as held onchain, from your own price source.
+const reference = (usd: string): QuoteReferenceV3 => ({
+  usd,
+  source: 'your-price-source',
+  marketTimestamp: null,
+  fetchedAt: new Date().toISOString(),
+  basis: 'raw-token',
+})
+
+const draft: LaunchDraftV3 = {
+  name: 'Example Token',
+  symbol: 'EXAMP',
+  decimals: 18,
+  salt,
+  liquiditySupply: parseUnits('1000000000', 18),
+  adminMode: 'immutable',
+  initialAdmin: zeroAddress,
+  // Creator slots total 90% (9000 bps) across 1–6 slots; RWAGMI's 10% is appended.
+  creatorRewards: [{ admin: creator, recipient: creator, bps: 9000 }],
+  openingMarketCapUsd: '6000',
+  primaryPair: weth.token,
+  deadline: BigInt(Math.floor(Date.now() / 1000) + 1800),
+  pools: [
+    { pair: weth, allocationBps: 6000, fee: STATIC_FEE_V3, reference: reference('3900') },
+    { pair: stock, allocationBps: 4000, fee: STATIC_FEE_V3, reference: reference('180') },
+  ],
+}
+
+await preflightLaunchV3(client, deployment, [weth, stock])
+const args = { draft, deployment, predictedToken }
+const pools = previewLaunchV3(args) // per pool: pool id, opening price, positions, locked remainder
+const plan = prepareLaunchV3(args)
+// walletClient.sendTransaction({ account: creator, ...toTransactionRequest(plan) })
+// const launch = parseLaunchV3Receipt(receipt, deployment)
+```
+
+For a creator buy, add `draft.devBuy = { pair: weth.token, amountIn, minimumOut: 1n,
+recipient }`, quote it with `quoteLaunchDevBuyV3(client, creator, args)`, which
+simulates the whole launch with `eth_call` and creates nothing, then set
+`minimumOut` from `minimumOutForSlippage`.
+
+After launch, `readLaunchFeesV3(client, deployment, token, recipient)` reads every
+pool's record and the recipient's claimable and unsettled balance per paired
+asset, all at one block. `prepareClaimQuoteV3` settles and claims one currency,
+and `prepareRewardRotationV3` lets a slot's admin change its recipient or admin.
+
+Rules your UI should preserve for v3:
+
+- Every pool needs a different paired asset, allocations must total 100%, and
+  one pool is primary.
+- Opening prices align to pool ticks. Show each pool's `openingPrice` from
+  `previewLaunchV3`, not the requested one. Explicit per-pool prices can open
+  pools at different prices, which invites arbitrage; require acknowledgement.
+- Liquidity is locked permanently, and allocations, fees and reward shares
+  never change after launch.
+- RWAGMI's 10% is a share of the hook fee, not an extra fee. The native LP fee
+  is zero.
+- Swaps that pay the fee up front (exact-input buys, exact-output sells) must
+  fill completely, or they revert.
+- Several catalogue stocks are not yet issued. Check `totalSupply()`: a pool
+  paired with an unissued stock cannot trade until the issuer mints it.
+- Bind fee reads and claims to the deployment that recorded the launch.
+  `parseLaunchV3Receipts` returns every launch in a batched transaction.
+
+## Quick Start (Launcher v2)
 
 ```ts
 import {
@@ -139,6 +266,8 @@ const writeArgs = toWriteContractArgs(prepared.plan)
 
 The SDK ships with current public deployment constants:
 
+- `DEFAULT_LAUNCHER_V3[8453]` (or `defaultLauncherV3(chainId)`) for the
+  launcher v3 stack on Base mainnet.
 - `DEFAULT_LAUNCHER_ADDRESSES[8453]` for Base mainnet.
 - `DEFAULT_LAUNCHER_ADDRESSES[84532]` for Base Sepolia.
 - `DEFAULT_RWAGMI_FEE_CONFIG[chainId]` for RWAGMI's 10% launch LP-fee reward
@@ -221,6 +350,22 @@ Two optional chain-aware guards:
   from `alignedStartingPrice`, not the requested one.
 
 ## Important API
+
+Launcher v3:
+
+- `readLaunchPairsV3(client, deployment, candidates?)` lists the pairs the
+  launcher accepts, in two Multicall3 requests.
+- `preflightLaunchV3`, `previewLaunchV3`, `prepareLaunchV3`, and
+  `buildLaunchV3Config` check, preview, and build a launch.
+- `quoteLaunchDevBuyV3` quotes the creator buy by simulation.
+- `parseLaunchV3Receipt` and `parseLaunchV3Receipts` decode launches.
+- `readLaunchFeesV3`, `prepareClaimQuoteV3`, and `prepareRewardRotationV3`
+  cover rewards.
+- `STATIC_FEE_V3`, `DYNAMIC_FEE_V3`, `validateHookFeeV3`, `quoteFeeV3`,
+  `priceToTickV3`, `priceAtTickV3`, `allocateV3Supply`, `buildPoolKey`, and
+  `poolIdV3` expose the fee, price, and pool maths.
+
+Launcher v2:
 
 - `prepareRwagmiLaunch(args)` returns the predicted token, typed config,
   reviewable transaction plan, and raw transaction request.

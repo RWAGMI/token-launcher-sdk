@@ -5,6 +5,7 @@ import {
   type SupportedChainId,
 } from './chains.js'
 import type { LauncherAddresses, RwagmiFeeConfig } from './launch/addresses.js'
+import type { LauncherDeploymentV3 } from './launch/v3/types.js'
 
 export const BASE_WETH = '0x4200000000000000000000000000000000000006' as Address
 
@@ -55,3 +56,30 @@ export const WETH_BY_CHAIN: Record<SupportedChainId, Address> = {
   [BASE_MAINNET_CHAIN_ID]: BASE_WETH,
   [BASE_SEPOLIA_CHAIN_ID]: BASE_WETH,
 } as const
+
+/**
+ * Current public RWAGMI v3 launcher stack by chain (Base mainnet).
+ *
+ * V3 launches one token across 1–5 Uniswap v4 pools in one transaction. The
+ * hook takes the trading fee in each pool's paired asset (90% to the creator's
+ * reward slots, 10% to RWAGMI); the native LP fee is zero and there is no
+ * launch auction. Sources are verified on Basescan. `startBlock` is at or
+ * before the launcher's creation block, so an indexer starting there misses
+ * nothing. V2 launches keep their own stack in `DEFAULT_LAUNCHER_ADDRESSES`.
+ */
+export const DEFAULT_LAUNCHER_V3: Partial<Record<SupportedChainId, LauncherDeploymentV3>> = {
+  [BASE_MAINNET_CHAIN_ID]: {
+    version: 3,
+    chainId: BASE_MAINNET_CHAIN_ID,
+    launcher: '0xB205c9e7B43ca3a4aA99b82D449354CCB3294B20',
+    hook: '0xB20B00367E37F826a0652c85a6DF375D784B20Ec',
+    locker: '0xB205CE7CC26C35ed5E1f9655FF9d0115af4a1B20',
+    devBuyExtension: '0xb20A2dCBC4AA42474072381aEb52CbFc5C751B20',
+    startBlock: 52_861_401n,
+  },
+}
+
+/** The v3 launcher stack for `chainId`, or null where none is deployed. */
+export function defaultLauncherV3(chainId: number): LauncherDeploymentV3 | null {
+  return DEFAULT_LAUNCHER_V3[chainId as SupportedChainId] ?? null
+}

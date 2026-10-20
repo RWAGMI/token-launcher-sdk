@@ -1,4 +1,4 @@
-import type { Address, PublicClient } from 'viem'
+import type { Address } from 'viem'
 import {
   prepareLaunchB20,
   type BuildLaunchArgs,
@@ -16,16 +16,17 @@ import {
   toTransactionRequest,
   type PreparedB20Write,
 } from './tx-plan.js'
+import type { ReadClient } from './client.js'
 
 export interface PredictLaunchTokenAddressArgs {
-  client: PublicClient
+  client: ReadClient
   draft: LaunchDraft
   /** The launcher creates the B20 internally, so the launcher is the deployer. */
   launcher: Address
 }
 
 export interface PrepareRwagmiLaunchArgs extends Omit<BuildLaunchArgs, 'predictedToken'> {
-  client: PublicClient
+  client: ReadClient
 }
 
 export interface PreparedRwagmiLaunch {

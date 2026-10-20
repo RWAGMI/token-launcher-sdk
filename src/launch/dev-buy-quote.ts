@@ -1,7 +1,6 @@
 import {
   type Abi,
   type Address,
-  type PublicClient,
 } from 'viem'
 import { rwagmiEthDevBuyAbi } from '../abi/rwagmi-eth-dev-buy.js'
 import { rwagmiLauncherAbi } from '../abi/rwagmi-launcher.js'
@@ -10,6 +9,7 @@ import {
   buildLaunchConfig,
   type BuildLaunchArgs,
 } from './config.js'
+import type { ReadClient } from '../client.js'
 
 const BPS_DENOMINATOR = 10_000
 
@@ -59,7 +59,7 @@ export async function quoteLaunchDevBuy({
   account,
   args,
 }: {
-  client: PublicClient
+  client: ReadClient
   account: Address
   args: BuildLaunchArgs
 }): Promise<bigint> {

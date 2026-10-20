@@ -3,6 +3,56 @@
 All notable changes to this package are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - Unreleased
+
+Launcher v3: one token across 1–5 Uniswap v4 pools, with trading fees taken in
+each pool's paired asset. V2 launches and their claims are unchanged.
+
+### Added
+
+- `DEFAULT_LAUNCHER_V3` and `defaultLauncherV3(chainId)`: the launcher v3 stack
+  on Base mainnet (launcher, hook, locker, ETH creator-buy extension, indexer
+  start block).
+- Launch building: `buildLaunchV3Config`, `previewLaunchV3`, `prepareLaunchV3`,
+  `preflightLaunchV3`, `STATIC_FEE_V3`, `DYNAMIC_FEE_V3`, and
+  `validateHookFeeV3`.
+- `readLaunchPairsV3(client, deployment, candidates?)`: the pairs the launcher
+  accepts, with symbol and decimals read onchain, in two Multicall3 requests.
+- `quoteLaunchDevBuyV3`: an exact creator-buy quote from a full-launch
+  simulation.
+- Receipts: `parseLaunchV3Receipt`, and `parseLaunchV3Receipts` for transactions
+  that batch several launches.
+- Rewards: `readLaunchFeesV3`, `prepareClaimQuoteV3`, and
+  `prepareRewardRotationV3`.
+- Fee, price, and pool maths: `quoteFeeV3`, `priceToTickV3`, `priceAtTickV3`,
+  `allocateV3Supply`, `decimalRational`, `divideRational`, `formatRational`,
+  `buildPoolKey`, and `poolIdV3`; and `validateLauncherRegistry` and
+  `findLauncherDeployment` for keeping several deployments.
+- ABIs: `rwagmiLauncherV3Abi`, `rwagmiHookV3Abi`, `rwagmiLpLockerV3Abi`, and
+  `rwagmiEthDevBuyV3Abi`. `decodeB20Error` explains the v3 errors and unwraps
+  Uniswap v4's `WrappedError`.
+- Pair catalogue: the rest of Coinbase's tokenized-stock catalogue, 174 more
+  stocks, listed as facts the v3 launcher accepts. No v2 auction module ships
+  for them, so `defaultLaunchPairs` still offers the same v2 pairs. The new
+  `LaunchPairConfig.v3Only` flag marks the 57 with no v2 module at all, and
+  `resolveLaunchPairs` never resolves those for a v2 launch.
+- `ReadClient`: the client methods the SDK calls.
+- `examples/launch-v3.ts`.
+
+### Changed
+
+- `validateLiquidityCurve` takes an optional sixth argument, `enforcePrecision`
+  (default `true`). The v3 builder turns it off because the v3 locker records
+  supply a curve cannot place as a locked remainder.
+
+### Fixed
+
+- Every function that takes a client now accepts `ReadClient` instead of
+  `PublicClient`, so a client created with `chain: base` type-checks without a
+  cast. Base's OP-stack formatters made such a client unassignable to a plain
+  `PublicClient` under current viem. Any `PublicClient` still satisfies
+  `ReadClient`.
+
 ## [0.2.0] - Unreleased
 
 Launcher v2.1: pair-bound auction modules, curated launch pairs, and a

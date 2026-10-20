@@ -321,6 +321,7 @@ export function validateLiquidityCurve(
   spacing: number,
   b20IsCurrency0: boolean,
   poolSupply: bigint,
+  enforcePrecision = true,
 ): void {
   const n = curve.tickLower.length
   if (n === 0) throw new Error('liquidity curve must include at least one position')
@@ -377,7 +378,7 @@ export function validateLiquidityCurve(
     throw error
   }
 
-  if (stranded * 1_000_000_000n > poolSupply * MAX_STRANDED_PPB) {
+  if (enforcePrecision && stranded * 1_000_000_000n > poolSupply * MAX_STRANDED_PPB) {
     const percent = Number((stranded * 1_000_000n) / poolSupply) / 10_000
     throw new Error(
       `opening price is too low to place liquidity accurately: this curve would strand ` +

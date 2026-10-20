@@ -130,13 +130,14 @@ describe('curated pair registry', () => {
     const stocks = LAUNCH_PAIR_FACTS.filter(
       (f) => f.riskLabel === 'admin-controlled-b20-stock',
     )
-    // COINc is still unminted: checked in so the wiring is ready, still gated
-    // behind a module address like every other pair. CRCLc and INTCc are
-    // published by Base but unminted and deliberately not carried here.
-    expect(stocks.map((f) => f.symbol).sort()).toEqual([
+    // The stocks this SDK can launch on v2: each has a shipped auction module.
+    // COINc is listed but unminted, so no module ships for it.
+    const withModule = stocks.filter(
+      (f) => DEFAULT_LAUNCH_PAIR_MODULES[launchPairKey(f.chainId, f.token)],
+    )
+    expect(withModule.map((f) => f.symbol).sort()).toEqual([
       'AAPLc',
       'AMZNc',
-      'COINc',
       'GOOGLc',
       'METAc',
       'MSFTc',
@@ -146,6 +147,11 @@ describe('curated pair registry', () => {
       'SPCXc',
       'TSLAc',
     ])
+    // The rest of Coinbase's catalogue is listed for the v3 launcher; 57 of
+    // them have no v2 module at all.
+    expect(stocks).toHaveLength(185)
+    expect(stocks.filter((f) => f.v3Only)).toHaveLength(57)
+    expect(new Set(stocks.map((f) => f.token.toLowerCase())).size).toBe(stocks.length)
     for (const f of stocks) {
       // 8 decimals, not 18 — the factor-of-10^10 trap the registry exists to close.
       expect(f.decimals).toBe(8)
@@ -159,15 +165,17 @@ describe('curated pair registry', () => {
     )
   })
 
-  it('gives every curated stock a USD price feed, and WETH none', () => {
+  it('gives every v2-launchable stock a USD price feed, and WETH none', () => {
     for (const f of LAUNCH_PAIR_FACTS) {
-      if (f.riskLabel === 'admin-controlled-b20-stock') {
-        // Without a feed a stock pool can only ever render in its own symbol.
-        expect(f.usdPriceFeed).toBeDefined()
-        expect(f.usdPriceFeed).toMatch(/^0x[0-9a-fA-F]{40}$/)
-      } else {
+      if (f.riskLabel !== 'admin-controlled-b20-stock') {
         // WETH converts through the ETH spot rate, not a Chainlink equity feed.
         expect(f.usdPriceFeed).toBeUndefined()
+      } else if (DEFAULT_LAUNCH_PAIR_MODULES[launchPairKey(f.chainId, f.token)]) {
+        // Without a feed a stock pool can only ever render in its own symbol.
+        expect(f.usdPriceFeed).toMatch(/^0x[0-9a-fA-F]{40}$/)
+      } else if (f.usdPriceFeed !== undefined) {
+        // Most catalogue stocks have no Base feed yet; one that does must be well formed.
+        expect(f.usdPriceFeed).toMatch(/^0x[0-9a-fA-F]{40}$/)
       }
     }
     // One feed per stock: a shared feed would price two stocks identically.

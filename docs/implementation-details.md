@@ -283,3 +283,49 @@ suffix costs ~4096 tries. The derivation is protocol-sealed but undocumented, so
 always confirm the mined salt with `predictB20Address` (chain truth) before
 submitting. A derivation change then degrades to a non-vanity address rather
 than a wrong deployment.
+
+## Launcher v3
+
+`buildLaunchV3Config` turns a `LaunchDraftV3` into the `RwagmiB20LauncherV3`
+`LaunchConfigV3` tuple without touching the network. `previewLaunchV3` returns
+the same pools with their pool ids, aligned opening prices and locked
+remainders, and `prepareLaunchV3` wraps the config as a `PreparedB20Write`.
+
+- **Pools.** Pools are sorted by paired-token address, as the launcher requires,
+  and each paired asset may appear once. `allocateV3Supply` splits the supply by
+  each pool's `allocationBps`, which must total 10,000; the last pool takes the
+  rounding remainder. `primaryPair` must name one of the pools.
+- **Prices.** With `openingMarketCapUsd`, each pool's price is the launch
+  token's USD value divided by that pair's `reference.usd`, computed as an exact
+  rational in each asset's own decimals, so a 6- or 8-decimal pair never
+  inherits WETH's 18. `priceToTickV3` aligns it down to the pool's tick spacing.
+  A pool with `priceQuote` uses that price instead and needs
+  `advancedPricesAcknowledged`.
+- **Positions.** Each pool gets 1–7 one-sided positions, 25 across the launch.
+  `validateLiquidityCurve` runs with `enforcePrecision` off: supply a curve
+  cannot place is reported as `lockedRemainder` and stays in the locker.
+- **Fees.** `STATIC_FEE_V3` (1%) and `DYNAMIC_FEE_V3` are starting points.
+  `validateHookFeeV3` mirrors the hook's own checks: a static fee in (0, 10%],
+  or a dynamic range whose cap exceeds its base, with a nonzero control
+  numerator and a filter period shorter than the reset period. `quoteFeeV3`
+  reproduces the hook's rounding for the four swap cases.
+- **Rewards.** Creator slots total 9,000 bps across 1–6 slots; the launcher
+  appends RWAGMI's 1,000 bps slot. `readLaunchFeesV3` reads the launch, its pool
+  records, the hook's current fee and the recipient's balances at one block.
+  `prepareClaimQuoteV3` settles the launch's pools in one currency and claims
+  the caller's whole balance in it, across this locker.
+  `prepareRewardRotationV3` changes a slot's recipient or admin. Unsettled fees
+  follow a new recipient; fees already credited stay with the old one.
+- **Creator buy.** `draft.devBuy` adds the `RwagmiEthDevBuyV3` extension on the
+  WETH pool. `quoteLaunchDevBuyV3` simulates the whole launch with an impossible
+  minimum output and reads the real output from the `Slippage` revert, so the
+  quote comes from the same pools and fees the wallet will sign.
+- **Receipts.** `parseLaunchV3Receipts` validates every launch in a receipt
+  against its launcher and locker events, so a smart-wallet batch of several
+  launches decodes. `parseLaunchV3Receipt` is the single-launch form and rejects
+  ambiguous receipts.
+- **Pairs.** `readLaunchPairsV3` checks the launcher's `pairedTokenEnabled`
+  allowlist and reads each accepted pair's symbol and decimals in two
+  Multicall3 requests. `preflightLaunchV3` re-checks the chain, the stack, the
+  launcher's active state and each selected pair's allowlist and decimals at one
+  block, just before signing.

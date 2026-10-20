@@ -3,6 +3,7 @@ import {
   ContractFunctionRevertedError,
   decodeErrorResult,
   type Abi,
+  parseAbi,
   type Hex,
 } from 'viem'
 import { accessControlAbi } from './abi/access-control.js'
@@ -14,10 +15,21 @@ import { rwagmiLauncherAbi } from './abi/rwagmi-launcher.js'
 import { rwagmiLpLockerAbi } from './abi/rwagmi-lp-locker.js'
 import { rwagmiPairBoundSniperAuctionV1Abi } from './abi/rwagmi-pair-bound-sniper-auction-v1.js'
 import { rwagmiSniperAuctionV0Abi } from './abi/rwagmi-sniper-auction-v0.js'
+import { rwagmiLauncherV3Abi } from './abi/rwagmi-launcher-v3.js'
+import { rwagmiHookV3Abi } from './abi/rwagmi-hook-v3.js'
+import { rwagmiLpLockerV3Abi } from './abi/rwagmi-lp-locker-v3.js'
+import { rwagmiEthDevBuyV3Abi } from './abi/rwagmi-eth-dev-buy-v3.js'
 import { roleNameForHash } from './roles.js'
 
 /** Combined error ABI covering every B20 layer we surface. */
 const COMBINED_ERROR_ABI: Abi = [
+  ...parseAbi([
+    'error WrappedError(address target, bytes4 selector, bytes reason, bytes details)',
+  ]),
+  ...rwagmiLauncherV3Abi,
+  ...rwagmiHookV3Abi,
+  ...rwagmiLpLockerV3Abi,
+  ...rwagmiEthDevBuyV3Abi,
   ...accessControlAbi,
   ...b20Abi,
   ...b20AssetAbi,
@@ -158,6 +170,10 @@ function explain(
   args: readonly unknown[] | undefined,
 ): DecodedB20Error {
   switch (name) {
+    case 'WrappedError':
+      return typeof args?.[2] === 'string'
+        ? decodeRevertData(args[2] as Hex)
+        : { name, args, message: 'The pool rejected this transaction.' }
     case 'AccessControlUnauthorizedAccount': {
       const role = args?.[1] as Hex | undefined
       const roleName = role ? roleNameForHash(role) : undefined
@@ -316,6 +332,27 @@ function explain(
         name,
         args,
         message: 'Creator dev buy is only available for the WETH pair.',
+      }
+    case 'PartialFill':
+      return {
+        name,
+        args,
+        message:
+          'This v3 swap could not fill completely within its price limit. Reduce its size or adjust the limit.',
+      }
+    case 'DeadlineExpired':
+      return { name, args, message: 'The launch review expired. Review the launch again.' }
+    case 'InvalidAllocation':
+      return {
+        name,
+        args,
+        message: 'Choose 1–5 distinct pools with positive allocations totaling 100%.',
+      }
+    case 'Slippage':
+      return {
+        name,
+        args,
+        message: 'The creator buy returns fewer tokens than the reviewed minimum.',
       }
     default:
       return { name, args, message: `Reverted with ${name}.` }

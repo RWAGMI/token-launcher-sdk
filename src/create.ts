@@ -3,7 +3,6 @@ import {
   encodeFunctionData,
   type Address,
   type Hex,
-  type PublicClient,
   zeroAddress,
 } from 'viem'
 import { b20Abi } from './abi/b20.js'
@@ -14,6 +13,7 @@ import {
   B20_VARIANT,
 } from './constants.js'
 import { prepareWrite, type PreparedB20Write } from './tx-plan.js'
+import type { ReadClient } from './client.js'
 
 /**
  * Minimal B20Factory helpers needed by the RWAGMI launcher.
@@ -137,7 +137,7 @@ export function prepareCreateB20(
 
 /** Deterministic B20 Asset address for (deployer, salt). */
 export async function predictB20Address(
-  client: PublicClient,
+  client: ReadClient,
   deployer: Address,
   salt: Hex,
 ): Promise<Address> {
