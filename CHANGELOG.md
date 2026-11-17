@@ -3,6 +3,40 @@
 All notable changes to this package are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - Unreleased
+
+Refresh the public pair catalog and v2 defaults to the November 17, 2026
+configuration. Existing launcher addresses, ABIs and transaction encoding are
+unchanged.
+
+### Added
+
+- 193 tokenized stocks, including HOODc, plus the OUSD, RWAGMI and BAES paired
+  assets. The Base catalog now has 382 entries: 378 stocks and four other assets.
+  All 382 were enabled on v3 at Base block 58,771,641.
+- 121 previously omitted v2 auction-module bindings, bringing the shipped
+  defaults to 132 pairs. Each token binding, launcher pair/module allowlist and
+  locker fee-source permission was verified at that block.
+- [Catalog provenance and upgrade notes](docs/pair-catalogue.md).
+
+### Changed
+
+- `LaunchPairRiskLabel` includes `admin-controlled-b20-stablecoin` and
+  `ecosystem-token`. **Update exhaustive switches and risk-label displays** to
+  handle these cases. OUSD uses 6 decimals; RWAGMI and BAES use 18.
+- Refresh `defaultOpeningPrice` values from the November 17 price snapshot.
+  These are editable form defaults, not live quotes. USD feeds remain optional.
+- Clarify that `readLaunchPairsV3` filters catalog candidates or a supplied list;
+  it does not discover arbitrary additions to the onchain allowlist. The 250
+  `v3Only` stocks remain excluded from v2 resolution.
+- Use the new HOODc pair in the v3 example, select pairs by address and handle
+  unavailable pair metadata before preparing the launch.
+
+### Fixed
+
+- Decode `All upstream RPCs failed` as an RPC outage even when the provider
+  wraps it as a contract revert, so integrators can show an actionable retry.
+
 ## [0.3.0] - Unreleased
 
 Launcher v3: one token across 1–5 Uniswap v4 pools, with trading fees taken in

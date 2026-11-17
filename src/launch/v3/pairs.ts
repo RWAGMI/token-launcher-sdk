@@ -6,8 +6,8 @@ import type { LaunchPairV3, LauncherDeploymentV3 } from './types.js'
 import type { ReadClient } from '../../client.js'
 
 /**
- * The paired assets a v3 launcher accepts right now, with symbol and decimals
- * read onchain at one block.
+ * Enabled paired assets from the supplied candidates, with symbol and decimals
+ * read onchain at one block. This does not enumerate the full onchain allowlist.
  *
  * Candidates default to WETH plus every pair in the SDK catalogue for the
  * deployment's chain. Pass your own list to check other tokens, for example

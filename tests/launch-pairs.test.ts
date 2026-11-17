@@ -96,30 +96,27 @@ describe('curated pair registry', () => {
 
   it('ships a pair-correct default opening price for every curated pair', () => {
     // A WETH-denominated figure is meaningless against an 8-decimal stock, so
-    // each pair carries its own. These are arbitrary round numbers, chosen so
-    // the default supply opens near $4k of nominal value — not valuations.
+    // each pair carries its own. These are rounded snapshot defaults for a
+    // 100 billion supply near $6k, not live prices or valuations.
     const byToken = new Map(
       LAUNCH_PAIR_FACTS.filter((f) => f.chainId === BASE_MAINNET_CHAIN_ID).map((f) => [
         f.symbol,
         f.defaultOpeningPrice,
       ]),
     )
-    expect(byToken.get('WETH')).toBe('0.000000000025')
-    expect(byToken.get('GOOGLc')).toBe('0.000000000125')
-    expect(byToken.get('AAPLc')).toBe('0.000000000125')
-    // Share prices span too wide a range for one shared stock constant: SNDK
-    // ~$1,733 and MSTR ~$143 are an order of magnitude apart, and a single
-    // constant would open one at a twelfth of the target and the other at 12x.
-    expect(byToken.get('NVDAc')).toBe('0.0000000002')
-    expect(byToken.get('METAc')).toBe('0.000000000075')
-    expect(byToken.get('AMZNc')).toBe('0.000000000155')
-    expect(byToken.get('MSFTc')).toBe('0.00000000008')
-    expect(byToken.get('MSTRc')).toBe('0.00000000028')
-    expect(byToken.get('SNDKc')).toBe('0.0000000000235')
-    // Repriced when the issuer minted them: the previous figures were derived
-    // from the 2026-08-21 close while both were still unminted.
-    expect(byToken.get('SPCXc')).toBe('0.000000000275')
-    expect(byToken.get('TSLAc')).toBe('0.000000000115')
+    expect(byToken.get('WETH')).toBe('0.000000000033')
+    expect(byToken.get('GOOGLc')).toBe('0.00000000021')
+    expect(byToken.get('AAPLc')).toBe('0.00000000017')
+    // Share prices span too wide a range for one shared stock constant.
+    expect(byToken.get('NVDAc')).toBe('0.00000000039')
+    expect(byToken.get('METAc')).toBe('0.000000000096')
+    expect(byToken.get('AMZNc')).toBe('0.00000000024')
+    expect(byToken.get('MSFTc')).toBe('0.00000000012')
+    expect(byToken.get('MSTRc')).toBe('0.00000000058')
+    expect(byToken.get('SNDKc')).toBe('0.000000000074')
+    expect(byToken.get('SPCXc')).toBe('0.00000000044')
+    expect(byToken.get('TSLAc')).toBe('0.00000000016')
+    expect(byToken.get('HOODc')).toBe('0.00000000083')
     // Every fact entry must have one, or the form has nothing to seed with.
     for (const f of LAUNCH_PAIR_FACTS) {
       expect(Number(f.defaultOpeningPrice)).toBeGreaterThan(0)
@@ -131,11 +128,11 @@ describe('curated pair registry', () => {
       (f) => f.riskLabel === 'admin-controlled-b20-stock',
     )
     // The stocks this SDK can launch on v2: each has a shipped auction module.
-    // COINc is listed but unminted, so no module ships for it.
     const withModule = stocks.filter(
       (f) => DEFAULT_LAUNCH_PAIR_MODULES[launchPairKey(f.chainId, f.token)],
     )
-    expect(withModule.map((f) => f.symbol).sort()).toEqual([
+    expect(withModule).toHaveLength(128)
+    expect(withModule.map((f) => f.symbol)).toEqual(expect.arrayContaining([
       'AAPLc',
       'AMZNc',
       'GOOGLc',
@@ -146,11 +143,10 @@ describe('curated pair registry', () => {
       'SNDKc',
       'SPCXc',
       'TSLAc',
-    ])
-    // The rest of Coinbase's catalogue is listed for the v3 launcher; 57 of
-    // them have no v2 module at all.
-    expect(stocks).toHaveLength(185)
-    expect(stocks.filter((f) => f.v3Only)).toHaveLength(57)
+      'COINc',
+    ]))
+    expect(stocks).toHaveLength(378)
+    expect(stocks.filter((f) => f.v3Only)).toHaveLength(250)
     expect(new Set(stocks.map((f) => f.token.toLowerCase())).size).toBe(stocks.length)
     for (const f of stocks) {
       // 8 decimals, not 18 — the factor-of-10^10 trap the registry exists to close.
@@ -165,14 +161,11 @@ describe('curated pair registry', () => {
     )
   })
 
-  it('gives every v2-launchable stock a USD price feed, and WETH none', () => {
+  it('keeps stock feeds optional without assigning equity feeds to other assets', () => {
     for (const f of LAUNCH_PAIR_FACTS) {
       if (f.riskLabel !== 'admin-controlled-b20-stock') {
-        // WETH converts through the ETH spot rate, not a Chainlink equity feed.
+        // Non-stock assets do not use a Chainlink equity feed.
         expect(f.usdPriceFeed).toBeUndefined()
-      } else if (DEFAULT_LAUNCH_PAIR_MODULES[launchPairKey(f.chainId, f.token)]) {
-        // Without a feed a stock pool can only ever render in its own symbol.
-        expect(f.usdPriceFeed).toMatch(/^0x[0-9a-fA-F]{40}$/)
       } else if (f.usdPriceFeed !== undefined) {
         // Most catalogue stocks have no Base feed yet; one that does must be well formed.
         expect(f.usdPriceFeed).toMatch(/^0x[0-9a-fA-F]{40}$/)
@@ -181,6 +174,37 @@ describe('curated pair registry', () => {
     // One feed per stock: a shared feed would price two stocks identically.
     const feeds = LAUNCH_PAIR_FACTS.map((f) => f.usdPriceFeed).filter(Boolean)
     expect(new Set(feeds).size).toBe(feeds.length)
+    // A deployed auction module does not imply a Chainlink feed exists.
+    const amd = defaultLaunchPairs(BASE_MAINNET_CHAIN_ID).find((p) => p.symbol === 'AMDc')!
+    expect(amd.decimals).toBe(8)
+    expect(amd.usdPriceFeed).toBeUndefined()
+  })
+
+  it('keeps the new HOODc pair v3-only and uses its actual 8-decimal address', () => {
+    const hood = LAUNCH_PAIR_FACTS.find((p) => p.symbol === 'HOODc')!
+    expect(hood).toMatchObject({
+      token: getAddress('0xb2000000000000000000006f944897540579d3f2'),
+      chainId: BASE_MAINNET_CHAIN_ID,
+      decimals: 8,
+      v3Only: true,
+      supportsEthDevBuy: false,
+      riskLabel: 'admin-controlled-b20-stock',
+    })
+    expect(DEFAULT_LAUNCH_PAIR_MODULES[launchPairKey(hood.chainId, hood.token)]).toBeUndefined()
+    expect(defaultLaunchPairs(BASE_MAINNET_CHAIN_ID).some((p) => p.token === hood.token)).toBe(false)
+  })
+
+  it('resolves the stablecoin and ecosystem pairs with their own decimals and risks', () => {
+    const pairs = defaultLaunchPairs(BASE_MAINNET_CHAIN_ID)
+    for (const [symbol, decimals, riskLabel] of [
+      ['OUSD', 6, 'admin-controlled-b20-stablecoin'],
+      ['RWAGMI', 18, 'ecosystem-token'],
+      ['BAES', 18, 'ecosystem-token'],
+    ] as const) {
+      expect(pairs.find((p) => p.symbol === symbol)).toMatchObject({
+        decimals, riskLabel, supportsEthDevBuy: false,
+      })
+    }
   })
 
   it('drops an entry whose price feed is present but malformed', () => {
@@ -324,7 +348,7 @@ describe('shipped default modules', () => {
   it('resolves mainnet pairs with no configuration', () => {
     const pairs = defaultLaunchPairs(BASE_MAINNET_CHAIN_ID)
 
-    expect(pairs.length).toBeGreaterThan(0)
+    expect(pairs).toHaveLength(132)
     // WETH must lead, or `resolveLaunchPairs` would have failed the list closed.
     expect(pairs[0].token).toBe(getAddress(WETH))
     expect(pairs[0].supportsEthDevBuy).toBe(true)

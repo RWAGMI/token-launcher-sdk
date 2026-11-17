@@ -84,16 +84,22 @@ reverts, so there is no such thing as a default module.
 
 `launch/pairs.ts` holds the curated registry: for each approved pair, the token,
 its decimals, the module bound to it, whether ETH dev buy is available, a
-default opening price, a risk label, and (for the tokenized stocks) a Chainlink
+default opening price, a risk label, and (for some tokenized stocks) a Chainlink
 USD feed. Pair facts are source constants; module addresses are separable
 deployment inputs — `resolveLaunchPairs(chainId, modules)` takes them keyed by
 `launchPairKey(chainId, token)`, and `DEFAULT_LAUNCH_PAIR_MODULES` is the
-shipped map of what the launcher allowlists today. A pair with no configured
+shipped snapshot of the verified module bindings and allowlists. A pair with no configured
 module is dropped, and a configuration with no WETH pair is rejected outright,
 because every product default in this SDK is written for WETH.
 
 Keeping the two separable is what lets a fork, a private deployment, or a
 cutover window override the modules without forking the pair facts.
+
+The November 17, 2026 catalog contains 382 Base assets (378 stocks and WETH,
+OUSD, RWAGMI and BAES), plus a Base Sepolia WETH fact. On Base, 132 have v2
+modules verified at block 58,771,641; the remaining 250 are `v3Only` and are
+excluded by `resolveLaunchPairs`. Opening prices are static snapshot defaults.
+See [pair catalog](pair-catalogue.md) for provenance and upgrade notes.
 
 `LauncherAddresses.mevModule` is optional, deprecated, and no longer populated
 by `DEFAULT_LAUNCHER_ADDRESSES`. The launch builder never reads it; the field
@@ -324,8 +330,9 @@ remainders, and `prepareLaunchV3` wraps the config as a `PreparedB20Write`.
   against its launcher and locker events, so a smart-wallet batch of several
   launches decodes. `parseLaunchV3Receipt` is the single-launch form and rejects
   ambiguous receipts.
-- **Pairs.** `readLaunchPairsV3` checks the launcher's `pairedTokenEnabled`
-  allowlist and reads each accepted pair's symbol and decimals in two
+- **Pairs.** `readLaunchPairsV3` checks catalog candidates (or your supplied
+  list) against the launcher's `pairedTokenEnabled` allowlist; it does not
+  enumerate that allowlist. It reads each accepted pair's symbol and decimals in two
   Multicall3 requests. `preflightLaunchV3` re-checks the chain, the stack, the
   launcher's active state and each selected pair's allowlist and decimals at one
   block, just before signing.

@@ -103,8 +103,9 @@ function infrastructureErrorMessage(message: string): string | null {
     return 'RPC is rate limited. Wait a moment and try again.'
   }
   if (
-    (lower.includes('rpc request failed') || lower.includes('http request failed')) &&
-    (lower.includes('request body') || lower.includes('url:'))
+    lower.includes('all upstream rpcs failed') ||
+    ((lower.includes('rpc request failed') || lower.includes('http request failed')) &&
+      (lower.includes('request body') || lower.includes('url:')))
   ) {
     return 'RPC request failed. Wait a moment and try again.'
   }

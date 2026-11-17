@@ -1,5 +1,6 @@
 import {
   BASE_MAINNET_CHAIN_ID,
+  BASE_WETH,
   STATIC_FEE_V3,
   defaultLauncherV3,
   minimumOutForSlippage,
@@ -17,6 +18,7 @@ import {
 } from '@rwagmi/token-launcher-sdk'
 import {
   createPublicClient,
+  getAddress,
   http,
   parseEther,
   parseUnits,
@@ -38,10 +40,12 @@ export async function prepareExampleLaunchV3(creator: Address, wethUsd: string, 
   const client = createPublicClient({ chain: base, transport: http('https://mainnet.base.org') })
   const deployment = defaultLauncherV3(BASE_MAINNET_CHAIN_ID)!
 
-  // Every pair the launcher accepts right now, with symbol and decimals read onchain.
+  // Enabled catalog candidates, with symbol and decimals read onchain.
   const pairs = await readLaunchPairsV3(client, deployment)
-  const weth = pairs.find((p) => p.symbol === 'WETH')!
-  const stock = pairs.find((p) => p.symbol === 'NVDAc')!
+  const hoodToken = getAddress('0xb2000000000000000000006f944897540579d3f2')
+  const weth = pairs.find((p) => p.token === BASE_WETH)
+  const stock = pairs.find((p) => p.token === hoodToken)
+  if (!weth || !stock) throw new Error('WETH and HOODc must be enabled and readable')
 
   const { salt } = mineVanityB20Salt('asset', deployment.launcher)
   const predictedToken = await predictB20Address(client, deployment.launcher, salt)

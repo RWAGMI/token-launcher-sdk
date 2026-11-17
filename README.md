@@ -73,9 +73,18 @@ supply between them. Compared with v2:
 `DEFAULT_LAUNCHER_V3` holds the Base mainnet stack; `defaultLauncherV3(chainId)`
 returns it, or null where none is deployed.
 
+The SDK catalog contains **382 Base paired assets**: 378 tokenized stocks,
+WETH, OUSD, RWAGMI and BAES. `readLaunchPairsV3` checks those candidates against
+the deployment's live allowlist and reads their metadata. Pass `candidates` to
+check additional addresses; it does not enumerate the onchain allowlist.
+All 382 were enabled at Base block 58,771,641 on November 17, 2026. Enablement
+does not guarantee issued supply, liquidity or unrestricted transfers.
+See [catalog details and upgrade notes](docs/pair-catalogue.md).
+
 ```ts
 import {
   BASE_MAINNET_CHAIN_ID,
+  BASE_WETH,
   STATIC_FEE_V3,
   defaultLauncherV3,
   mineVanityB20Salt,
@@ -89,17 +98,19 @@ import {
   type LaunchDraftV3,
   type QuoteReferenceV3,
 } from '@rwagmi/token-launcher-sdk'
-import { createPublicClient, http, parseUnits, zeroAddress, type Address } from 'viem'
+import { createPublicClient, getAddress, http, parseUnits, zeroAddress, type Address } from 'viem'
 import { base } from 'viem/chains'
 
 const client = createPublicClient({ chain: base, transport: http('https://mainnet.base.org') })
 const deployment = defaultLauncherV3(BASE_MAINNET_CHAIN_ID)!
 const creator = '0xYourCreatorWallet' as Address
 
-// Every pair the launcher accepts right now, with symbol and decimals read onchain.
+// Enabled catalog candidates, with symbol and decimals read onchain.
 const pairs = await readLaunchPairsV3(client, deployment)
-const weth = pairs.find((p) => p.symbol === 'WETH')!
-const stock = pairs.find((p) => p.symbol === 'NVDAc')!
+const nvdaToken = getAddress('0xb20000000000000000000078ee7ce2fe4908108c')
+const weth = pairs.find((p) => p.token === BASE_WETH)
+const stock = pairs.find((p) => p.token === nvdaToken)
+if (!weth || !stock) throw new Error('WETH and NVDAc must be enabled and readable')
 
 const { salt } = mineVanityB20Salt('asset', deployment.launcher)
 const predictedToken = await predictB20Address(client, deployment.launcher, salt)
@@ -163,7 +174,7 @@ Rules your UI should preserve for v3:
   is zero.
 - Swaps that pay the fee up front (exact-input buys, exact-output sells) must
   fill completely, or they revert.
-- Several catalogue stocks are not yet issued. Check `totalSupply()`: a pool
+- Check `totalSupply()` before offering a catalogue stock: a pool
   paired with an unissued stock cannot trade until the issuer mints it.
 - Bind fee reads and claims to the deployment that recorded the launch.
   `parseLaunchV3Receipts` returns every launch in a batched transaction.
@@ -288,7 +299,7 @@ upgrade without rebuilding this SDK.
 
 ## Launch Pairs
 
-Every launch is built against a `LaunchPairConfig` from the curated registry in
+Every v2 launch is built against a `LaunchPairConfig` from the curated registry in
 `launch/pairs.ts`. The pair — not the draft — decides the paired token, its
 decimals, the auction module, and whether a creator dev buy is available.
 
@@ -297,11 +308,20 @@ immutable `pairedToken()` must match the pool. A mismatched pair/module
 combination reverts on-chain, so the SDK refuses to build one, and there is no
 single fallback module to fall back to.
 
-`defaultLaunchPairs(chainId)` resolves the curated pairs against the modules the
-launcher currently allowlists, and `defaultWethLaunchPair(chainId)` picks the
+`defaultLaunchPairs(chainId)` resolves the curated pairs against the shipped
+module map, and `defaultWethLaunchPair(chainId)` picks the
 canonical WETH one. Both return nothing for a chain with no deployed module —
 Base Sepolia is currently in that state — because the honest response to "no
 launchable pair" is to disable launching, not to build a reverting transaction.
+
+The Base defaults contain 132 pairs: 128 stocks, WETH, OUSD, RWAGMI and BAES.
+Each module binding and the launcher/locker allowlists were verified at block
+58,771,641 on November 17, 2026. The remaining 250 stocks are marked `v3Only`
+and never resolve for v2, even if a module address is supplied. Re-check live
+state before signing; these defaults are a snapshot. `defaultOpeningPrice` is
+also a static form default, refreshed November 17, 2026, not a live quote.
+Only some stocks have a `usdPriceFeed`; provide your own price source for the
+others or display prices in the paired asset's units.
 
 To point at your own deployment, supply the module map yourself:
 
@@ -337,8 +357,12 @@ Two optional chain-aware guards:
 - Pairs are curated. Show the pair's `riskLabel`: `canonical-weth` has no
   issuer, while `admin-controlled-b20-stock` is a third-party token whose issuer
   retains live mint, burn, pause, and transfer-policy powers over an already
-  created pool. The union is exported as `LaunchPairRiskLabel`; switch on it
-  rather than copying the strings into your own code.
+  created pool. `admin-controlled-b20-stablecoin` denotes an issuer-controlled
+  stablecoin with admin and peg risk. `ecosystem-token` covers RWAGMI and BAES,
+  each with its own token controls and liquidity risk. These labels are not
+  safety ratings. The union is exported as `LaunchPairRiskLabel`; handle all
+  four cases when upgrading. For v3, look up the label with
+  `launchPairFactsFor(chainId, pair.token)`; custom candidates may have no facts.
 - The auction module is mandatory, and is bound to the selected pair.
 - A creator dev buy is WETH-only, and its minimum output is required.
 - Immutable mode creates the B20 with no admin.

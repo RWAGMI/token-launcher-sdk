@@ -56,6 +56,16 @@ describe('B20 error decoding', () => {
     expect(decoded.message).toBe('RPC request failed. Wait a moment and try again.')
   })
 
+  it('treats an upstream outage wrapped as a revert as an RPC failure', () => {
+    const decoded = decodeB20Error(
+      new Error(
+        'The contract function "launchB20" reverted with the following reason:\nAll upstream RPCs failed.',
+      ),
+    )
+
+    expect(decoded.message).toBe('RPC request failed. Wait a moment and try again.')
+  })
+
   it('removes verbose viem metadata from other user-facing errors', () => {
     const decoded = decodeB20Error(
       new Error(
